@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, getDoc, query, where, Timestamp, getDocs, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import axios from 'axios';
 import './index.css';
-import logoPesu from './assets/logoPesu.png';
+// Make sure you have this logo in your src/assets folder
+// import logoPesu from './assets/logoPesu.png'; 
 
-// --- !!! IMPORTANT: PASTE YOUR FIREBASE CONFIG HERE !!! ---
+// --- Your Firebase Config ---
 const firebaseConfig = {
-  apiKey: "AIzaSyDzCiSuTiaa7vhXs_2GoSXLwqSjANMsRDk",
+  apiKey: "AIzaSyDzCiSuTiaa7vhXs_2GoSXLwqSjANMsRDk", // Replace with your actual config
   authDomain: "pes-university-biotech-labs.firebaseapp.com",
   projectId: "pes-university-biotech-labs",
   storageBucket: "pes-university-biotech-labs.firebasestorage.app",
@@ -15,141 +17,141 @@ const firebaseConfig = {
   appId: "1:414683717628:web:f5953b3f9c6d9b8edbdc79",
   measurementId: "G-GDHGE0MESX"
 };
-// --- Main App Component (Acts as a router) ---
-const App = () => {
-    const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null);
-    const [loggedInUser, setLoggedInUser] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [authError, setAuthError] = useState('');
 
-    useEffect(() => {
-        try {
-            const app = initializeApp(firebaseConfig);
-            const firestoreDb = getFirestore(app);
-            const firebaseAuth = getAuth(app);
-            setDb(firestoreDb);
-            setAuth(firebaseAuth);
-
-            const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
-                if (!firebaseUser) {
-                    try {
-                        await signInAnonymously(firebaseAuth);
-                    } catch (error) {
-                        console.error("Anonymous authentication error:", error);
-                        setAuthError("Failed to establish a secure connection. Check your Firebase API keys.");
-                    }
-                }
-                setIsLoading(false);
-            });
-            return () => unsubscribe();
-        } catch (error) {
-            console.error("Firebase initialization failed:", error);
-            setAuthError("Could not connect to the booking service. Please ensure your Firebase config is correct.");
-            setIsLoading(false);
-        }
-    }, []);
-
-    const handleUserUpdate = (updatedUser) => {
-        setLoggedInUser(updatedUser);
-    };
-
-    if (isLoading) {
-        return <div className="min-h-screen flex items-center justify-center bg-slate-100">Loading...</div>;
-    }
-    
-    if (authError) {
-         return <div className="min-h-screen flex items-center justify-center bg-slate-100 text-orange-500">{authError}</div>;
-    }
-
-    if (!loggedInUser) {
-        return <LoginPage db={db} setLoggedInUser={setLoggedInUser} />;
-    }
-
-    return <BookingPage db={db} auth={auth} user={loggedInUser} onLogout={() => setLoggedInUser(null)} onUpdateUser={handleUserUpdate} />;
-};
-
-
-// --- Login Page Component with Dynamic Signup ---
+// ==================================================================
+// --- LoginPage Component ---
+// ==================================================================
 const LoginPage = ({ db, setLoggedInUser }) => {
+    const [step, setStep] = useState('capstone');
+    const [isCapstone, setIsCapstone] = useState(null);
+    const [teamMembersStr, setTeamMembersStr] = useState('');
     const [srn, setSrn] = useState('');
     const [name, setName] = useState('');
+    const [email, setEmail] = useState(''); 
+    const [otp, setOtp] = useState('');
+    const [userToVerify, setUserToVerify] = useState(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    
+    const [message, setMessage] = useState('');
     const appId = 'default-lab-booking-app';
 
-    const handleLoginOrSignup = async (e) => {
+    const getOrCreateTeam = async (memberSrns) => { 
+        const sortedSrns = [...new Set(memberSrns)].sort();
+        const teamId = sortedSrns.join('_');
+        const teamsRef = collection(db, `/artifacts/${appId}/public/data/teams`);
+        const teamDocRef = doc(teamsRef, teamId);
+        const teamDoc = await getDoc(teamDocRef);
+        if (!teamDoc.exists()) {
+            await setDoc(teamDocRef, { memberSrns: sortedSrns, id: teamId });
+        }
+        return teamId;
+    };
+    
+    const handleSendOtp = async (e) => {
         e.preventDefault();
         setError('');
+        setMessage('');
+        setIsLoading(true);
 
-        const srnRegex = /^[A-Za-z]{3}\d{1}[A-Za-z]{2}\d{2}[A-Za-z]{2}\d{3}$/;
-        if (!srnRegex.test(srn)) {
-            setError("Invalid SRN format. Please use the format like PES1UG22BT001");
+        if (srn.toUpperCase() !== 'PES1UGBTXXX') {
+            const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
+            if (!srnRegex.test(srn)) {
+                setError("Invalid SRN format.");
+                setIsLoading(false);
+                return;
+            }
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            setError("Please enter a valid email address.");
+            setIsLoading(false);
             return;
         }
 
-        setIsLoading(true);
         try {
-            const usersCollectionPath = `/artifacts/${appId}/public/data/users`;
-            const usersRef = collection(db, usersCollectionPath);
-            const q = query(usersRef, where("srn", "==", srn.toUpperCase()));
+            await axios.post('/api/send-otp', { email: email });
+            setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
+            setMessage(`An OTP has been sent to ${email}.`);
+            setStep('otp');
+        } catch (err) {
+            console.error("Send OTP error:", err);
+            setError(err.response?.data?.error || 'Failed to send OTP. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    const handleVerifyOtp = async () => {
+        setError('');
+        setIsLoading(true);
+
+        try {
+            await axios.post('/api/verify-otp', { email: userToVerify.email, otp: otp });
+
+            const usersRef = collection(db, `/artifacts/${appId}/public/data/users`);
+            const q = query(usersRef, where("srn", "==", userToVerify.srn.toUpperCase()));
             const querySnapshot = await getDocs(q);
+            let teamId = null;
+
+            if (userToVerify.isCapstone) {
+                const memberSrns = userToVerify.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+                if (!memberSrns.includes(userToVerify.srn.toUpperCase())) { memberSrns.push(userToVerify.srn.toUpperCase()); }
+                teamId = await getOrCreateTeam(memberSrns);
+            }
+            
+            const userPayload = { teamId, email: userToVerify.email };
 
             if (querySnapshot.empty) {
-                console.log("New user, creating account...");
-                const newUser = { 
-                    srn: srn.toUpperCase(), 
-                    name: name,
-                    semester: "N/A" 
-                };
+                const newUser = { srn: userToVerify.srn.toUpperCase(), name: userToVerify.name, semester: "N/A", ...userPayload };
                 const userDocRef = await addDoc(usersRef, newUser);
                 setLoggedInUser({ id: userDocRef.id, ...newUser });
             } else {
                 const userDoc = querySnapshot.docs[0];
                 const userData = userDoc.data();
-                if (userData.name.toLowerCase() === name.toLowerCase()) {
-                    setLoggedInUser({ id: userDoc.id, ...userData });
+                if (userData.name.toLowerCase() === userToVerify.name.toLowerCase()) {
+                    await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), userPayload);
+                    setLoggedInUser({ id: userDoc.id, ...userData, ...userPayload });
                 } else {
+                    setStep('details');
                     setError('SRN found, but the name does not match.');
                 }
             }
         } catch (err) {
-            console.error("Login/Signup error:", err);
-            setError('An error occurred. Please try again.');
+            console.error("OTP Verification/Signup error:", err);
+            setError(err.response?.data?.error || 'An error occurred during verification.');
         } finally {
             setIsLoading(false);
         }
     };
 
+    if (step === 'capstone') {
+         return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
+    }
+
+    if (step === 'otp') {
+      return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
+    }
+    
     return (
         <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
-            <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
-                <div className="flex justify-center mb-6">
-                    <img src={logoPesu} alt="PES University Logo" className="w-28" />
-                </div>
+            <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border-slate-200">
+                <div className="flex justify-center mb-6"></div>
                 <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">PES UNIVERSITY BIOTECHNOLOGY LABS</h2>
-                <p className="text-center text-slate-500 mb-8">Enter your details to sign in or create an account</p>
-
+                <p className="text-center text-slate-500 mb-8">Enter your details to receive an OTP</p>
                 {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
-                
-                <form onSubmit={handleLoginOrSignup} className="space-y-4">
-                    <div>
-                        <label className="text-sm font-semibold text-slate-700">SRN</label>
-                        <input type="text" value={srn} onChange={(e) => setSrn(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-800 outline-none transition" placeholder="e.g., PES1UG22BT001" required/>
-                    </div>
-                    <div>
-                        <label className="text-sm font-semibold text-slate-700">Full Name</label>
-                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-800 outline-none transition" placeholder="Your full name" required/>
-                    </div>
-                    <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600 transition-all disabled:from-orange-300 disabled:to-orange-400">
-                        {isLoading ? 'Verifying...' : 'Login / Sign Up'}
-                    </button>
+                <form onSubmit={handleSendOtp} className="space-y-4">
+                     {isCapstone && ( <div><label className="text-sm font-semibold text-slate-700">Team Members' SRNs</label><input type="text" value={teamMembersStr} onChange={(e) => setTeamMembersStr(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="Comma-separated SRNs" required/></div>)}
+                    <div> <label className="text-sm font-semibold text-slate-700">Your SRN</label> <input type="text" value={srn} onChange={(e) => setSrn(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="e.g., PES1UG22BT001" required/> </div>
+                    <div> <label className="text-sm font-semibold text-slate-700">Your Full Name</label> <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="Your full name" required/> </div>
+                    <div> <label className="text-sm font-semibold text-slate-700">Your Email</label> <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="your.name@pesu.pes.edu" required/> </div>
+                    <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-blue-800 to-blue-900 text-white font-bold rounded-lg hover:shadow-lg"> {isLoading ? 'Sending...' : 'Send OTP'} </button>
+                    <button type="button" onClick={() => setStep('capstone')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
                 </form>
             </div>
         </div>
     );
 };
+
 
 // --- Header Component ---
 const Header = ({ user, onLogout, onEditProfile, onDeleteAccount }) => {
@@ -189,7 +191,8 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     const [selectedItem, setSelectedItem] = useState(null);
     const [bookings, setBookings] = useState([]);
     const [allBookings, setAllBookings] = useState([]);
-    const [consumableBookings, setConsumableBookings] = useState([]);
+    const [allPastBookings, setAllPastBookings] = useState([]);
+    const [allSupplyBookings, setAllSupplyBookings] = useState([]);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [bookingToCancel, setBookingToCancel] = useState(null);
@@ -201,6 +204,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     const [currentView, setCurrentView] = useState('schedule');
     
     const appId = 'default-lab-booking-app';
+    const isAdmin = user && user.srn === 'PES1UGBTXXX';
 
     useEffect(() => {
         if (!db) return;
@@ -221,7 +225,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         const seedData = async () => {
             const docSnap = await getDocs(query(collection(db, equipmentCollectionPath)));
             if (docSnap.empty) {
-                const initialItems = [ { id: "Autoclave_1", name: "Autoclave", model: "Tektronix TDS2024C", bookingType: 'time' }, { id: "LAF", name: "LAF", model: "Keysight 33500B", bookingType: 'time' }, { id: "multimeter_01", name: "Digital Multimeter", model: "Fluke 87V", bookingType: 'time' }, { id: "beaker_250ml_01", name: "Beaker 250ml", model: "Borosilicate", bookingType: 'quantity' }, { id: "flask_500ml_01", name: "Flask 500ml", model: "Erlenmeyer", bookingType: 'quantity' }, ];
+                const initialItems = [ { id: "autoclave_01", name: "Autoclave", model: "Autoclave Model", bookingType: 'time', slotDuration: 2 }, { id: "laf_01", name: "LAF", model: "LAF Model", bookingType: 'time', slotDuration: 1 }, { id: "beaker_250ml_01", name: "Beaker 250ml", model: "Borosilicate", bookingType: 'quantity' }, { id: "flask_500ml_01", name: "Flask 500ml", model: "Erlenmeyer", bookingType: 'quantity' }, ];
                 for (const item of initialItems) { await setDoc(doc(db, equipmentCollectionPath, item.id), item); }
             }
         };
@@ -230,7 +234,10 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     }, [db, appId]);
     
     useEffect(() => {
-        if (!db || !selectedItem || selectedItem.bookingType !== 'time') return;
+        if (!db || !selectedItem || selectedItem.bookingType !== 'time') {
+            setBookings([]);
+            return;
+        };
         const bookingsPath = `/artifacts/${appId}/public/data/bookings`;
         const q = query(collection(db, bookingsPath), where("equipmentId", "==", selectedItem.id));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -245,23 +252,31 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     useEffect(() => {
         if(!db) return;
         const bookingsPath = `/artifacts/${appId}/public/data/bookings`;
-        const q = query(collection(db, bookingsPath), where("startTime", ">=", Timestamp.fromDate(new Date())));
+        const q = query(collection(db, bookingsPath)); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), startTime: doc.data().startTime.toDate() }));
-            fetched.sort((a,b) => a.startTime - b.startTime); 
+            const now = new Date();
+            const upcoming = [];
+            const past = [];
             const bookingsWithDetails = fetched.map(booking => {
                 const equipment = equipmentList.find(e => e.id === booking.equipmentId);
                 return {...booking, equipmentName: equipment?.name || 'Unknown', equipmentModel: equipment?.model || '' };
             });
-            setAllBookings(bookingsWithDetails);
+
+            bookingsWithDetails.forEach(b => {
+                if(b.startTime >= now) upcoming.push(b);
+                else past.push(b);
+            });
+
+            setAllBookings(upcoming.sort((a,b) => a.startTime - b.startTime));
+            setAllPastBookings(past.sort((a,b) => b.startTime - a.startTime));
         }, err => { console.error(err); setErrorMessage("Could not load all bookings."); });
 
         const consumableBookingsPath = `/artifacts/${appId}/public/data/consumableBookings`;
         const q2 = query(collection(db, consumableBookingsPath));
         const unsubscribe2 = onSnapshot(q2, (snapshot) => {
             const fetched = snapshot.docs.map(doc => ({id: doc.id, ...doc.data(), returnDate: doc.data().returnDate.toDate(), bookedAt: doc.data().bookedAt.toDate() }));
-            fetched.sort((a,b) => a.bookedAt - b.bookedAt);
-            setConsumableBookings(fetched);
+            setAllSupplyBookings(fetched.sort((a,b) => a.bookedAt - b.bookedAt));
         });
 
         return () => { unsubscribe(); unsubscribe2(); };
@@ -269,19 +284,52 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
 
     const handleConfirmBooking = async () => {
         if (!user || !selectedItem || selectedSlot === null) return;
-        const userBookingsForDay = bookings.filter(b => b.userId === user.id);
-        for (const existingBooking of userBookingsForDay) {
-            if (Math.abs(selectedSlot - existingBooking.startTime.getHours()) <= 2) {
-                setErrorMessage(`Booking failed: Too close to your existing booking at ${existingBooking.startTime.getHours()}:00.`);
-                setIsBookingModalOpen(false);
-                setTimeout(() => setErrorMessage(''), 5000);
-                return;
+    
+        const slotDuration = selectedItem.slotDuration || 1;
+        let userIdsToCheck = [user.id];
+        
+        if (user.teamId) {
+            const teamsRef = doc(db, `/artifacts/${appId}/public/data/teams`, user.teamId);
+            const teamDoc = await getDoc(teamsRef);
+            if (teamDoc.exists()) {
+                const teamMemberSrns = teamDoc.data().memberSrns;
+                const usersRef = collection(db, `/artifacts/${appId}/public/data/users`);
+                const teamUsersQuery = query(usersRef, where("srn", "in", teamMemberSrns));
+                const teamUsersSnap = await getDocs(teamUsersQuery);
+                userIdsToCheck = teamUsersSnap.docs.map(doc => doc.id);
             }
         }
+        
+        const allEquipmentBookingsOnDate = allBookings.concat(allPastBookings).filter(b => b.equipmentId === selectedItem.id && b.startTime.toDateString() === currentDate.toDateString());
+        const relevantBookingsForDay = allEquipmentBookingsOnDate.filter(b => userIdsToCheck.includes(b.userId));
+    
+        if (user.teamId) {
+            if (relevantBookingsForDay.length >= 2) {
+                 setErrorMessage("Your team has reached the maximum of 2 slots for this item today.");
+                 setIsBookingModalOpen(false);
+                 return;
+            }
+            if (relevantBookingsForDay.length === 1) {
+                const existingHour = relevantBookingsForDay[0].startTime.getHours();
+                const difference = Math.abs(selectedSlot - existingHour);
+                if (difference !== slotDuration) {
+                    setErrorMessage("Teams can only book consecutive slots. Your second booking must be adjacent to your first.");
+                    setIsBookingModalOpen(false);
+                    return;
+                }
+            }
+        } else {
+             if (relevantBookingsForDay.length >= 1) {
+                 setErrorMessage("You can only book one slot per day for this item.");
+                 setIsBookingModalOpen(false);
+                 return;
+            }
+        }
+    
         const startTime = new Date(currentDate); startTime.setHours(selectedSlot, 0, 0, 0);
         try {
             const bookingsPath = `/artifacts/${appId}/public/data/bookings`;
-            await addDoc(collection(db, bookingsPath), { equipmentId: selectedItem.id, userId: user.id, userName: user.name, userSrn: user.srn, startTime: Timestamp.fromDate(startTime), bookedAt: Timestamp.now() });
+            await addDoc(collection(db, bookingsPath), { equipmentId: selectedItem.id, userId: user.id, userName: user.name, userSrn: user.srn, teamId: user.teamId || null, startTime: Timestamp.fromDate(startTime), bookedAt: Timestamp.now() });
             setIsBookingModalOpen(false); setSelectedSlot(null);
         } catch (error) { console.error("Error creating booking:", error); setErrorMessage("Failed to book the slot."); }
     };
@@ -296,12 +344,24 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         } catch (error) { console.error("Error cancelling booking:", error); setErrorMessage("Failed to cancel booking."); }
     };
     
-    const handleProfileUpdate = async (newName) => {
-        if (!newName.trim()) return;
+    const handleProfileUpdate = async (updatedFields) => {
+        if (!user) return;
+        let finalFields = { ...updatedFields };
+
+        if (updatedFields.teamMembersStr) {
+            const memberSrns = updatedFields.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+            if (user.srn && !memberSrns.includes(user.srn.toUpperCase())) {
+                memberSrns.push(user.srn.toUpperCase());
+            }
+            const teamId = await getOrCreateTeam(memberSrns);
+            finalFields.teamId = teamId;
+        }
+        delete finalFields.teamMembersStr;
+
         try {
             const userDocRef = doc(db, `/artifacts/${appId}/public/data/users`, user.id);
-            await updateDoc(userDocRef, { name: newName.trim() });
-            onUpdateUser({ ...user, name: newName.trim() });
+            await updateDoc(userDocRef, finalFields);
+            onUpdateUser({ ...user, ...finalFields });
             setIsEditProfileModalOpen(false);
         } catch (error) { console.error("Profile update failed", error); }
     };
@@ -328,11 +388,33 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         }
     };
 
-    const timeSlots = useMemo(() => Array.from({ length: 8 }, (_, i) => 9 + i).map(h => ({ hour: h, label: `${h % 12 === 0 ? 12 : h % 12}:00 ${h < 12 ? 'AM' : 'PM'}` })), []);
+    const handleMarkAsReturned = async (bookingId) => {
+        const bookingRef = doc(db, `/artifacts/${appId}/public/data/consumableBookings`, bookingId);
+        await updateDoc(bookingRef, { status: 'returned' });
+    };
+
+    const timeSlots = useMemo(() => {
+        const duration = selectedItem?.slotDuration || 1;
+        const slots = [];
+        for (let hour = 9; hour < 17; hour += duration) {
+            if (hour + duration > 17 && duration === 2) continue;
+            if (hour + duration > 17 && duration === 1) continue;
+            const endHour = hour + duration;
+            const formatHour = (h) => h >= 13 ? h - 12 : (h === 0 || h === 12 ? 12 : h);
+            const getPeriod = (h) => h < 12 || h === 24 ? 'AM' : (h >= 12 && h < 24 ? 'PM' : 'AM');
+            
+            const startLabel = `${formatHour(hour)}:00 ${getPeriod(hour)}`;
+            const endLabel = `${formatHour(endHour)}:00 ${getPeriod(endHour)}`;
+
+            slots.push({ hour, label: `${startLabel} - ${endLabel}` });
+        }
+        return slots;
+    }, [selectedItem]);
+    
     const getBookingForSlot = (hour) => bookings.find(b => b.startTime.getHours() === hour);
     
     const handleSlotClick = (hour, booking) => {
-        if (booking && booking.userId === user.id) {
+        if (booking && (booking.userId === user.id || isAdmin)) {
             setBookingToCancel({...booking, bookingType: 'time'});
             return;
         }
@@ -355,19 +437,20 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     };
 
     const MainContent = () => {
-        switch(currentView) {
+        if (currentView === 'consumableView') {
+            return <ConsumableView />;
+        }
+         switch(currentView) {
             case 'schedule':
-                return (!selectedItem || selectedItem.bookingType !== 'time') ? <div className="text-center text-gray-500 py-8">Select an equipment from the sidebar to see its schedule.</div> : <ScheduleView />;
+                return <ScheduleView />;
             case 'myBookings':
-                return <BookingsListView bookingsToShow={allBookings.filter(b => b.userId === user.id)} showCancelButton={true} />;
-            case 'allBookings':
-                return <BookingsListView bookingsToShow={allBookings} showCancelButton={false} />;
+                return <BookingHistoryView user={user} upcoming={allBookings.filter(b => b.userId === user.id)} past={allPastBookings.filter(b => b.userId === user.id)} />;
             case 'supplyBookings':
-                return <ConsumableBookingsListView bookings={consumableBookings} user={user} onCancel={setBookingToCancel} />;
-            case 'consumableView':
-                return <ConsumableView />;
+                return <ConsumableBookingsListView bookings={allSupplyBookings} user={user} onCancel={setBookingToCancel} isAdmin={isAdmin} title="All Supply Bookings" />;
+            case 'adminDashboard':
+                return isAdmin ? <AdminDashboardView allUpcoming={allBookings} allSupplies={allSupplyBookings} onCancel={setBookingToCancel} /> : null;
             default:
-                return null;
+                return <ScheduleView />;
         }
     };
 
@@ -375,8 +458,8 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         <>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                  <div>
-                    <h2 className="text-2xl font-bold text-slate-800">{selectedItem.name}</h2>
-                    <p className="text-slate-500">{selectedItem.model}</p>
+                    <h2 className="text-2xl font-bold text-slate-800">{selectedItem?.name}</h2>
+                    <p className="text-slate-500">{selectedItem?.model}</p>
                 </div>
                 <div className="flex items-center mt-4 sm:mt-0 bg-slate-100 p-1 rounded-lg">
                     <button onClick={() => handleDateChange(-1)} className="px-4 py-2 rounded-md hover:bg-slate-200 transition">‹</button>
@@ -391,7 +474,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                     let slotClass = 'bg-blue-100 text-blue-800 hover:bg-blue-200 hover:shadow-md cursor-pointer';
                     if (isPast) slotClass = 'bg-slate-200 text-slate-500 cursor-not-allowed';
                     if (booking) {
-                        slotClass = booking.userId === user.id 
+                        slotClass = (booking.userId === user.id || isAdmin)
                             ? 'bg-orange-100 text-orange-800 hover:bg-orange-200 cursor-pointer'
                             : 'bg-slate-300 text-slate-600 cursor-not-allowed';
                     }
@@ -406,19 +489,19 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         </>
     );
 
-    const BookingsListView = ({ bookingsToShow, showCancelButton }) => (
+    const BookingsListView = ({ bookingsToShow, showCancelButton, title }) => (
         <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-slate-800 mb-4">{showCancelButton ? 'My Booked Equipment' : 'All Booked Equipment'}</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-4">{title}</h2>
             {bookingsToShow.length > 0 ? bookingsToShow.map(booking => (
                 <div key={booking.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center">
                     <div>
                         <p className="font-bold text-blue-800">{booking.equipmentName}</p>
                         <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
-                        <p className="font-semibold mt-1">{booking.startTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {booking.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+                        <p className="font-semibold mt-1">{booking.startTime.toLocaleString()}</p>
                     </div>
-                    {showCancelButton && booking.userId === user.id && ( <button onClick={() => setBookingToCancel({...booking, bookingType: 'time'})} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button> )}
+                    {showCancelButton && <button onClick={() => setBookingToCancel({...booking, bookingType: 'time'})} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button>}
                 </div>
-            )) : <p className="text-center text-slate-500 py-8">No upcoming equipment bookings found.</p>}
+            )) : <p className="text-center text-slate-500 py-8">No bookings found in this category.</p>}
         </div>
     );
     
@@ -438,11 +521,11 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             if (quantity <= 0) { setErrorMessage("Quantity must be at least 1."); return; }
             try {
                 const consumableBookingsPath = `/artifacts/${appId}/public/data/consumableBookings`;
-                await addDoc(collection(db, consumableBookingsPath), { itemId: selectedItem.id, itemName: selectedItem.name, quantity, userId: user.id, userName: user.name, userSrn: user.srn, bookedAt: Timestamp.fromDate(start), returnDate: Timestamp.fromDate(end) });
+                await addDoc(collection(db, consumableBookingsPath), { itemId: selectedItem.id, itemName: selectedItem.name, quantity, userId: user.id, userName: user.name, userSrn: user.srn, bookedAt: Timestamp.fromDate(start), returnDate: Timestamp.fromDate(end), status: 'booked' });
                  setCurrentView('supplyBookings');
             } catch (error) { console.error("Error booking consumable:", error); setErrorMessage("Failed to book the item."); }
         };
-        const currentItemBookings = consumableBookings.filter(b => b.itemId === selectedItem.id);
+        const currentItemBookings = allSupplyBookings.filter(b => b.itemId === selectedItem.id);
 
         return (
             <div>
@@ -472,7 +555,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                                 <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
                                 <p className="text-sm font-semibold text-slate-700 mt-1">Booked: {booking.bookedAt.toLocaleDateString()} - Returns: {booking.returnDate.toLocaleDateString()}</p>
                              </div>
-                              {booking.userId === user.id && ( <button onClick={() => setBookingToCancel({...booking, bookingType: 'quantity'})} className="bg-orange-500 text-white px-3 py-1 rounded-lg hover:bg-orange-600 text-sm">Cancel</button> )}
+                              {(booking.userId === user.id || isAdmin) && ( <button onClick={() => setBookingToCancel({...booking, bookingType: 'quantity'})} className="bg-orange-500 text-white px-3 py-1 rounded-lg hover:bg-orange-600 text-sm">Cancel</button> )}
                          </div>
                      )) : <p className="text-center text-slate-500 py-4">No one has booked this item yet.</p>}
                  </div>
@@ -480,21 +563,55 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         );
     };
     
-    const ConsumableBookingsListView = ({ bookings, user, onCancel }) => (
-        <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-slate-800">All Supply Bookings</h2>
-            {bookings.length > 0 ? bookings.map(booking => (
-                <div key={booking.id} className="bg-white p-4 rounded-lg shadow-sm border flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                    <div>
-                        <p className="font-bold text-blue-800">{booking.itemName} (x{booking.quantity})</p>
-                        <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
-                        <p className="font-semibold mt-1">Booked: {booking.bookedAt.toLocaleDateString()} - Return by: {booking.returnDate.toLocaleDateString()}</p>
-                    </div>
-                    {booking.userId === user.id && (
-                        <button onClick={() => onCancel({ ...booking, bookingType: 'quantity' })} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button>
-                    )}
-                </div>
-            )) : <p className="text-center text-slate-500 py-8">No supply bookings found.</p>}
+    const ConsumableBookingsListView = ({ bookings, user, onCancel, isAdmin, title }) => {
+        const now = new Date();
+        return (
+            <div className="space-y-4">
+                <h2 className="text-2xl font-bold text-slate-800 mb-4">{title}</h2>
+                {bookings.length > 0 ? bookings.map(booking => {
+                    const isDelayed = booking.returnDate < now && booking.status !== 'returned';
+                    const canCancel = now < booking.bookedAt;
+                    return (
+                        <div key={booking.id} className={`bg-white p-4 rounded-lg shadow-sm border ${isDelayed ? 'border-orange-500' : 'border-slate-200'} flex flex-col sm:flex-row justify-between items-start sm:items-center`}>
+                            <div>
+                                <p className="font-bold text-blue-800">{booking.itemName} (x{booking.quantity})</p>
+                                <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
+                                <p className="font-semibold mt-1">Booked: {booking.bookedAt.toLocaleDateString()} - Return by: {booking.returnDate.toLocaleDateString()}</p>
+                                {isDelayed && <p className="text-sm font-bold text-orange-600 mt-1">DELAYED</p>}
+                                {booking.status === 'returned' && <p className="text-sm font-bold text-green-600 mt-1">RETURNED</p>}
+                            </div>
+                            <div className="flex items-center mt-2 sm:mt-0 ml-auto space-x-2">
+                                {booking.userId === user.id && booking.status !== 'returned' && <button onClick={() => handleMarkAsReturned(booking.id)} className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 text-sm font-semibold">Mark Returned</button>}
+                                {((booking.userId === user.id && canCancel) || isAdmin) && <button onClick={() => onCancel({ ...booking, bookingType: 'quantity' })} className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button>}
+                            </div>
+                        </div>
+                    )
+                }) : <p className="text-center text-slate-500 py-8">No supply bookings found.</p>}
+            </div>
+        );
+    };
+    
+    const AdminDashboardView = ({ allUpcoming, allSupplies, onCancel }) => (
+        <div className="space-y-8">
+            <BookingsListView bookingsToShow={allUpcoming} showCancelButton={true} title="All Upcoming Equipment Bookings"/>
+            <ConsumableBookingsListView bookings={allSupplies} user={user} onCancel={onCancel} isAdmin={isAdmin} title="All Current Supply Bookings"/>
+        </div>
+    );
+    
+    const BookingHistoryView = ({ user, upcoming, past }) => (
+        <div className="space-y-8">
+            <BookingsListView bookingsToShow={upcoming} showCancelButton={true} title="My Upcoming Equipment Bookings" />
+            <ConsumableBookingsListView bookings={allSupplyBookings.filter(b => b.userId === user.id)} user={user} onCancel={setBookingToCancel} isAdmin={isAdmin} title="My Supply Bookings" />
+            <div className="border-t border-slate-200 pt-8 mt-8">
+                <h2 className="text-2xl font-bold text-slate-800 mb-4">My Past Bookings</h2>
+                {past.length > 0 ? past.map(booking => (
+                     <div key={booking.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 opacity-70">
+                         <p className="font-bold text-blue-800">{booking.equipmentName}</p>
+                         <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
+                         <p className="font-semibold mt-1">{booking.startTime.toLocaleString()}</p>
+                     </div>
+                )) : <p className="text-center text-slate-500 py-8">No past bookings found.</p>}
+            </div>
         </div>
     );
 
@@ -514,7 +631,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                         <nav className="flex flex-wrap -mb-px">
                             <button onClick={() => { setCurrentView('schedule'); if(equipmentList.length > 0 && (!selectedItem || selectedItem.bookingType !== 'time')) setSelectedItem(equipmentList[0]);}} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'schedule' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Schedule</button>
                             <button onClick={() => { setCurrentView('myBookings'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'myBookings' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>My Bookings</button>
-                            <button onClick={() => { setCurrentView('allBookings'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'allBookings' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Booked Equipment</button>
+                            {isAdmin && <button onClick={() => { setCurrentView('adminDashboard'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'adminDashboard' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Admin Dashboard</button>}
                             <button onClick={() => { setCurrentView('supplyBookings'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'supplyBookings' || currentView === 'consumableView' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Supply Bookings</button>
                         </nav>
                     </div>
@@ -523,7 +640,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             </div>
             {isBookingModalOpen && <ConfirmationModal selectedEquipment={selectedItem} selectedSlot={selectedSlot} currentDate={currentDate} onConfirm={handleConfirmBooking} onCancel={() => setIsBookingModalOpen(false)} />}
             {bookingToCancel && <CancelConfirmationModal booking={bookingToCancel} onConfirm={handleCancelBooking} onCancel={() => setBookingToCancel(null)} />}
-            {isEditProfileModalOpen && <EditProfileModal user={user} onSave={handleProfileUpdate} onCancel={() => setIsEditProfileModalOpen(false)} />}
+            {isEditProfileModalOpen && <EditProfileModal user={user} onSave={handleProfileUpdate} onCancel={() => setIsEditProfileModalOpen(false)} db={db} />}
             {isDeleteAccountModalOpen && <DeleteConfirmationModal onConfirm={handleDeleteAccount} onCancel={() => setIsDeleteAccountModalOpen(false)} />}
         </div>
     );
@@ -558,17 +675,71 @@ const CancelConfirmationModal = ({ booking, onConfirm, onCancel }) => {
         </div>
     );
 };
-const EditProfileModal = ({ user, onSave, onCancel }) => {
+const EditProfileModal = ({ user, onSave, onCancel, db }) => {
     const [name, setName] = useState(user.name);
+    const [srn, setSrn] = useState(user.srn);
+    const [teamMembersStr, setTeamMembersStr] = useState('');
+    const [error, setError] = useState('');
+    
+    const appId = 'default-lab-booking-app';
+
+    const getOrCreateTeam = async (memberSrns) => {
+        const sortedSrns = [...new Set(memberSrns)].sort();
+        const teamId = sortedSrns.join('_');
+        const teamsRef = collection(db, `/artifacts/${appId}/public/data/teams`);
+        const teamDocRef = doc(teamsRef, teamId);
+        const teamDoc = await getDoc(teamDocRef);
+        if (!teamDoc.exists()) {
+            await setDoc(teamDocRef, { memberSrns: sortedSrns });
+        }
+        return teamId;
+    };
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        setError('');
+
+        if (srn && srn.toUpperCase() !== 'PES1UGBTXXX') {
+            const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
+            if (!srnRegex.test(srn)) {
+                setError("Invalid SRN format.");
+                return;
+            }
+        }
+
+        let teamId = user.teamId;
+        if (teamMembersStr) {
+            const memberSrns = teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+            if (srn && !memberSrns.includes(srn.toUpperCase())) {
+                memberSrns.push(srn.toUpperCase());
+            }
+            teamId = await getOrCreateTeam(memberSrns);
+        }
+
+        onSave({ name, srn: srn.toUpperCase(), teamId });
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <form onSubmit={(e) => { e.preventDefault(); onSave(name); }} className="bg-white rounded-lg shadow-2xl p-8 max-w-sm w-full">
-                <h3 className="text-xl font-bold mb-4">Edit Profile</h3>
+            <form onSubmit={handleSave} className="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full space-y-4">
+                <h3 className="text-xl font-bold mb-2">Edit Profile</h3>
+                {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg text-sm">{error}</p>}
                 <div>
                     <label className="text-sm font-semibold text-slate-700">Name</label>
                     <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg"/>
                 </div>
-                <div className="flex justify-end space-x-4 mt-6"><button type="button" onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200">Cancel</button><button type="submit" className="px-6 py-2 rounded-lg bg-orange-500 text-white">Save</button></div>
+                 <div>
+                    <label className="text-sm font-semibold text-slate-700">Your SRN</label>
+                    <input type="text" value={srn} onChange={(e) => setSrn(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="e.g., PES1UG22BT001"/>
+                </div>
+                <div>
+                    <label className="text-sm font-semibold text-slate-700">Team Members' SRNs (for Capstone)</label>
+                    <input type="text" value={teamMembersStr} onChange={(e) => setTeamMembersStr(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="Comma-separated SRNs"/>
+                </div>
+                <div className="flex justify-end space-x-4 pt-4">
+                    <button type="button" onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200">Cancel</button>
+                    <button type="submit" className="px-6 py-2 rounded-lg bg-orange-500 text-white">Save</button>
+                </div>
             </form>
         </div>
     );
@@ -580,7 +751,7 @@ const DeleteConfirmationModal = ({ onConfirm, onCancel }) => {
                 <h3 className="text-xl font-bold text-orange-600 mb-2">Delete Account?</h3>
                 <p className="text-slate-600 mb-4">Are you sure? This will permanently delete your account and all of your current and past bookings. This action cannot be undone.</p>
                 <div className="flex justify-end space-x-4 mt-6">
-                    <button onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200 hover:bg-slate-300">Cancel</button>
+                    <button onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200 hover:bg-slate-300">Keep it</button>
                     <button onClick={onConfirm} className="px-6 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700">Yes, Delete My Account</button>
                 </div>
             </div>

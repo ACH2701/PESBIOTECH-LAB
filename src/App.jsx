@@ -15,6 +15,7 @@ const firebaseConfig = {
   appId: "1:414683717628:web:f5953b3f9c6d9b8edbdc79",
   measurementId: "G-GDHGE0MESX"
 };
+
 // --- Main App Component (Acts as a router) ---
 const App = () => {
     const [db, setDb] = useState(null);
