@@ -645,7 +645,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                                 <p className="font-bold text-blue-800">{booking.itemName} (x{booking.quantity})</p>
                                 <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
                                 <p className="font-semibold mt-1">Booked: {booking.bookedAt.toLocaleDateString()} - Return by: {booking.returnDate.toLocaleDateString()}</p>
-                                {isDelayed && <p className="text-sm font-bold text-orange-600 mt-1">DELAYED</p>}
+                                {isDelayed && <p className="text-sm font-bold text-orange-600 mt-1">TIME-EXCEEDED</p>}
                                 {booking.status === 'returned' && <p className="text-sm font-bold text-green-600 mt-1">RETURNED</p>}
                             </div>
                             <div className="flex items-center mt-2 sm:mt-0 ml-auto space-x-2">
