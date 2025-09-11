@@ -200,9 +200,9 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                     <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-blue-800 to-blue-900 text-white font-bold rounded-lg hover:shadow-lg"> {isLoading ? 'Sending...' : 'Send OTP'} </button>
                     <button type="button" onClick={() => setStep('capstone')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
                 </form>
-                <div className="flex justify-center mb-6">
-                    <img src={logoPesu} alt="PES University Logo" className="w-28" />
-                </div>
+            </div>
+        </div>
+    );
 };
 // --- Header Component ---
 const Header = ({ user, onLogout, onEditProfile, onDeleteAccount }) => {
