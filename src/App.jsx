@@ -188,7 +188,9 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     return (
         <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
             <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
-                <div className="flex justify-center mb-6"></div>
+                <div className="flex justify-center mb-6">
+                    <img src="/logoPesu.png" alt="PES University Logo" className="w-28" />
+                </div>
                 <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">PES UNIVERSITY BIOTECHNOLOGY LABS</h2>
                 <p className="text-center text-slate-500 mb-8">Enter your details to receive an OTP</p>
                 {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
