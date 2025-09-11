@@ -79,27 +79,12 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [otp, setOtp] = useState('');
+    const [userToVerify, setUserToVerify] = useState(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState('');
-    
     const appId = 'default-lab-booking-app';
-    const cloudFunctionBaseUrl = `https://us-central1-${firebaseConfig.projectId || "YOUR_PROJECT_ID"}.cloudfunctions.net`;
 
-    useEffect(() => {
-        const seedAdmin = async () => {
-             if (!db) return;
-            const usersCollectionPath = `/artifacts/${appId}/public/data/users`;
-            const q = query(collection(db, usersCollectionPath), where("srn", "==", "PES1UGBTXXX"));
-            const snapshot = await getDocs(q);
-            if(snapshot.empty) {
-                console.log("Seeding master admin account...");
-                await addDoc(collection(db, usersCollectionPath), { srn: "PES1UGBTXXX", name: "master", semester: "Admin" });
-            }
-        };
-        seedAdmin();
-    }, [db, appId]);
-    
     const getOrCreateTeam = async (memberSrns) => {
         const sortedSrns = [...new Set(memberSrns)].sort();
         const teamId = sortedSrns.join('_');
@@ -107,7 +92,7 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         const teamDocRef = doc(teamsRef, teamId);
         const teamDoc = await getDoc(teamDocRef);
         if (!teamDoc.exists()) {
-            await setDoc(teamDocRef, { memberSrns: sortedSrns });
+            await setDoc(teamDocRef, { memberSrns: sortedSrns, id: teamId });
         }
         return teamId;
     };
@@ -116,26 +101,32 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         e.preventDefault();
         setError('');
         setMessage('');
+        setIsLoading(true);
+
         if (srn.toUpperCase() !== 'PES1UGBTXXX') {
             const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
             if (!srnRegex.test(srn)) {
-                setError("Invalid SRN format. Must be like PES1UG22BT... through UG25.");
+                setError("Invalid SRN format.");
+                setIsLoading(false);
                 return;
             }
         }
-        setIsLoading(true);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            setError("Please enter a valid email address.");
+            setIsLoading(false);
+            return;
+        }
+
         try {
-            const response = await fetch(`${cloudFunctionBaseUrl}/sendOtp`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email: email })
-            });
-            const data = await response.json();
-            if(!response.ok) throw new Error(data.error || 'Failed to send OTP.');
-            setMessage('OTP has been sent to your email.');
+            await axios.post('/api/send-otp', { email: email });
+            setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
+            setMessage(`An OTP has been sent to ${email}. Please check your inbox.`);
             setStep('otp');
         } catch (err) {
-            setError(err.message);
+            console.error("Send OTP error:", err);
+            const errorMessage = err.response?.data?.error || 'Failed to send OTP. Please try again.';
+            setError(errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -145,34 +136,29 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         setIsLoading(true);
         setError('');
         try {
-            const response = await fetch(`${cloudFunctionBaseUrl}/verifyOtp`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email, otp })
-            });
-            const data = await response.json();
-            if(!response.ok) throw new Error(data.error || 'Failed to verify OTP.');
+            await axios.post('/api/verify-otp', { email: userToVerify.email, otp: otp });
 
             const usersRef = collection(db, `/artifacts/${appId}/public/data/users`);
-            const q = query(usersRef, where("srn", "==", srn.toUpperCase()));
+            const q = query(usersRef, where("srn", "==", userToVerify.srn.toUpperCase()));
             const querySnapshot = await getDocs(q);
-            
             let teamId = null;
-            if (isCapstone) {
-                const memberSrns = teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-                if (!memberSrns.includes(srn.toUpperCase())) { memberSrns.push(srn.toUpperCase()); }
+            if (userToVerify.isCapstone) {
+                const memberSrns = userToVerify.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+                if (!memberSrns.includes(userToVerify.srn.toUpperCase())) {
+                    memberSrns.push(userToVerify.srn.toUpperCase());
+                }
                 teamId = await getOrCreateTeam(memberSrns);
             }
-            const userPayload = { teamId, email };
+            const userPayload = { teamId, email: userToVerify.email };
 
             if (querySnapshot.empty) {
-                const newUser = { srn: srn.toUpperCase(), name, semester: "N/A", ...userPayload };
+                const newUser = { srn: userToVerify.srn.toUpperCase(), name: userToVerify.name, semester: "N/A", ...userPayload };
                 const userDocRef = await addDoc(usersRef, newUser);
                 setLoggedInUser({ id: userDocRef.id, ...newUser });
             } else {
                 const userDoc = querySnapshot.docs[0];
                 const userData = userDoc.data();
-                if (userData.name.toLowerCase() === name.toLowerCase()) {
+                if (userData.name.toLowerCase() === userToVerify.name.toLowerCase()) {
                     await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), userPayload);
                     setLoggedInUser({ id: userDoc.id, ...userData, ...userPayload });
                 } else {
@@ -180,27 +166,28 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                     setError('SRN found, but the name does not match.');
                 }
             }
-        } catch (err) { 
-            console.error("OTP Verification/Signup error:", err); 
-            setError(err.message);
-        } finally { 
-            setIsLoading(false); 
+        } catch (err) {
+            console.error("OTP Verification/Signup error:", err);
+            const errorMessage = err.response?.data?.error || 'An error occurred during verification.';
+            setError(errorMessage);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-     if (step === 'capstone') {
-        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src={logoPesu} alt="PES University Logo" className="w-28" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
+    if (step === 'capstone') {
+        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <PesuLogo /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
     }
 
     if (step === 'otp') {
-        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src={logoPesu} alt="PES University Logo" className="w-28" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="spinner-border animate-spin inline-block w-4 h-4 border-2 rounded-full" role="status"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
+        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <PesuLogo /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
     }
 
     return (
         <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
             <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
                 <div className="flex justify-center mb-6">
-                    <img src={logoPesu} alt="PES University Logo" className="w-28" />
+                     <PesuLogo />
                 </div>
                 <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">PES UNIVERSITY BIOTECHNOLOGY LABS</h2>
                 <p className="text-center text-slate-500 mb-8">Enter your details to receive an OTP</p>
@@ -217,6 +204,7 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         </div>
     );
 };
+
 // --- Header Component ---
 const Header = ({ user, onLogout, onEditProfile, onDeleteAccount }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
