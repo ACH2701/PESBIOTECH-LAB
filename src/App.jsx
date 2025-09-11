@@ -479,7 +479,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     };
 
     const MainContent = () => {
-        if (currentView === 'consumableView') {
+        if (selectedItem?.bookingType === 'quantity' && currentView !== 'supplyBookings') {
             return <ConsumableView />;
         }
          switch(currentView) {
