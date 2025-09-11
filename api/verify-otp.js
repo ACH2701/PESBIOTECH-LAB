@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { initializeDb } from './_firebase-admin';
+import { initializeDb } from './_firebase-admin.js'; // <-- FIX: Added .js extension
 
 export default async (req, res) => {
   if (req.method !== 'POST') {
@@ -36,7 +36,8 @@ export default async (req, res) => {
     } else {
       res.status(400).json({ error: 'Invalid OTP.' });
     }
-  } catch (error) {
+  } catch (error)
+  {
     console.error('Error verifying OTP:', error);
     res.status(500).json({ error: 'Failed to verify OTP.' });
   }

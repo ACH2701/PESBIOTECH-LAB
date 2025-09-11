@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
 import bcrypt from 'bcryptjs';
-import { initializeDb } from './_firebase-admin';
+import { initializeDb } from './_firebase-admin.js'; // <-- FIX: Added .js extension
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -27,7 +27,7 @@ export default async (req, res) => {
     });
 
     await resend.emails.send({
-      from: 'PESU Biotech Labs <onboarding@resend.dev>', // IMPORTANT: Replace with your verified Resend domain
+      from: 'PESU Biotech Labs <onboarding@resend.dev>',
       to: email,
       subject: 'Your Login Code for PESU Biotech Labs',
       html: `<p>Your one-time login code is: <strong>${otp}</strong></p><p>This code will expire in 10 minutes.</p>`,
