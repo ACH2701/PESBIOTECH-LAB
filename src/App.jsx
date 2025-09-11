@@ -178,7 +178,21 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     };
 
     if (step === 'capstone') {
-        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
+        return (
+            <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
+                <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
+                    <div className="flex justify-center mb-6">
+                        <img src={logoPesu} alt="PES University Logo" style={{height: 56, width: 'auto'}} />
+                    </div>
+                    <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2>
+                    <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p>
+                    <div className="flex justify-around">
+                        <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button>
+                        <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     if (step === 'otp') {
@@ -189,7 +203,7 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
             <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
                 <div className="flex justify-center mb-6">
-                    <img src={logoPesu} alt="PES University Logo" className="h-10 w-10 mr-3"/>
+                    <img src={logoPesu} alt="PES University Logo" style={{height: 56, width: 'auto'}} />
                 </div>
                 <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">PES UNIVERSITY BIOTECHNOLOGY LABS</h2>
                 <p className="text-center text-slate-500 mb-8">Enter your details to receive an OTP</p>
