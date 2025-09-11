@@ -226,7 +226,7 @@ const Header = ({ user, onLogout, onEditProfile, onDeleteAccount }) => {
     return (
         <header className="bg-white/80 backdrop-blur-lg shadow-sm sticky top-0 z-20 border-b border-slate-200">
             <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                <img src={logoPesu} alt="PES University Logo" className="h-10 w-10 mr-3"/>
+                <img src={logoPesu} alt="PES University Logo" style={{height: 56, width: 'auto'}} />
                 <h1 className="text-xl md:text-2xl font-bold text-blue-900">PES UNIVERSITY BIOTECHNOLOGY LABS</h1>
                 <div className="relative">
                     <button onClick={() => setIsDropdownOpen(!isDropdownOpen)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-slate-100 transition">
