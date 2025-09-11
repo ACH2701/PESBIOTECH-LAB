@@ -18,7 +18,6 @@ const firebaseConfig = {
 // --- Main App Component (Acts as a router) ---
 const App = () => {
     const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null);
     const [loggedInUser, setLoggedInUser] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [authError, setAuthError] = useState('');
@@ -27,14 +26,13 @@ const App = () => {
         try {
             const app = initializeApp(firebaseConfig);
             const firestoreDb = getFirestore(app);
-            const firebaseAuth = getAuth(app);
+            const auth = getAuth(app);
             setDb(firestoreDb);
-            setAuth(firebaseAuth);
 
-            const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+            const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
                 if (!firebaseUser) {
                     try {
-                        await signInAnonymously(firebaseAuth);
+                        await signInAnonymously(auth);
                     } catch (error) {
                         console.error("Anonymous authentication error:", error);
                         setAuthError("Failed to establish a secure connection. Check your Firebase API keys.");
@@ -66,18 +64,23 @@ const App = () => {
         return <LoginPage db={db} setLoggedInUser={setLoggedInUser} />;
     }
 
-    return <BookingPage db={db} auth={auth} user={loggedInUser} onLogout={() => setLoggedInUser(null)} onUpdateUser={handleUserUpdate} />;
+    return <BookingPage db={db} user={loggedInUser} onLogout={() => setLoggedInUser(null)} onUpdateUser={handleUserUpdate} />;
 };
 
 
-// --- Login Page Component with Capstone Flow ---
+// --- Login Page Component with OTP Flow ---
 const LoginPage = ({ db, setLoggedInUser }) => {
-    const [srn, setSrn] = useState('');
-    const [name, setName] = useState('');
-    const [error, setError] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const [step, setStep] = useState('capstone');
     const [isCapstone, setIsCapstone] = useState(null);
     const [teamMembersStr, setTeamMembersStr] = useState('');
+    const [srn, setSrn] = useState('');
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [otp, setOtp] = useState('');
+    const [generatedOtp, setGeneratedOtp] = useState(null);
+    const [userToVerify, setUserToVerify] = useState(null);
+    const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     
     const appId = 'default-lab-booking-app';
 
@@ -101,17 +104,15 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         const teamsRef = collection(db, `/artifacts/${appId}/public/data/teams`);
         const teamDocRef = doc(teamsRef, teamId);
         const teamDoc = await getDoc(teamDocRef);
-
         if (!teamDoc.exists()) {
             await setDoc(teamDocRef, { memberSrns: sortedSrns });
         }
         return teamId;
     };
 
-    const handleLoginOrSignup = async (e) => {
+    const handleSendOtp = async (e) => {
         e.preventDefault();
         setError('');
-
         if (srn.toUpperCase() !== 'PES1UGBTXXX') {
             const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
             if (!srnRegex.test(srn)) {
@@ -119,66 +120,60 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                 return;
             }
         }
-        
-        let teamId = null;
-        if (isCapstone) {
-            const memberSrns = teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-             if (!memberSrns.includes(srn.toUpperCase())) {
-                memberSrns.push(srn.toUpperCase());
-            }
-            if (memberSrns.length === 0) {
-                setError("Please enter the SRNs of your team members, separated by commas.");
-                return;
-            }
-            teamId = await getOrCreateTeam(memberSrns);
-        }
-
         setIsLoading(true);
-        try {
-            const usersCollectionPath = `/artifacts/${appId}/public/data/users`;
-            const usersRef = collection(db, usersCollectionPath);
-            const q = query(usersRef, where("srn", "==", srn.toUpperCase()));
-            const querySnapshot = await getDocs(q);
+        const otpCode = Math.floor(100000 + Math.random() * 900000);
+        console.log(`****************\n* OTP FOR ${email}: ${otpCode} *\n****************`);
+        alert(`An OTP has been "sent" to ${email}. Check the browser console to see it.`);
+        setGeneratedOtp(otpCode);
+        setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
+        setStep('otp');
+        setIsLoading(false);
+    };
 
-            let userPayload = { teamId: teamId };
+    const handleVerifyOtp = async () => {
+        if (parseInt(otp) !== generatedOtp) {
+            setError("Invalid OTP. Please try again.");
+            return;
+        }
+        setIsLoading(true);
+        setError('');
+        try {
+            const usersRef = collection(db, `/artifacts/${appId}/public/data/users`);
+            const q = query(usersRef, where("srn", "==", userToVerify.srn.toUpperCase()));
+            const querySnapshot = await getDocs(q);
+            let teamId = null;
+            if (userToVerify.isCapstone) {
+                const memberSrns = userToVerify.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+                if (!memberSrns.includes(userToVerify.srn.toUpperCase())) { memberSrns.push(userToVerify.srn.toUpperCase()); }
+                teamId = await getOrCreateTeam(memberSrns);
+            }
+            const userPayload = { teamId, email: userToVerify.email };
 
             if (querySnapshot.empty) {
-                const newUser = { srn: srn.toUpperCase(), name: name, semester: "N/A", ...userPayload };
+                const newUser = { srn: userToVerify.srn.toUpperCase(), name: userToVerify.name, semester: "N/A", ...userPayload };
                 const userDocRef = await addDoc(usersRef, newUser);
                 setLoggedInUser({ id: userDocRef.id, ...newUser });
             } else {
                 const userDoc = querySnapshot.docs[0];
                 const userData = userDoc.data();
-                if (userData.name.toLowerCase() === name.toLowerCase()) {
-                    const updatedUserData = { id: userDoc.id, ...userData, ...userPayload };
-                    await updateDoc(doc(db, usersCollectionPath, userDoc.id), { teamId: userPayload.teamId });
-                    setLoggedInUser(updatedUserData);
+                if (userData.name.toLowerCase() === userToVerify.name.toLowerCase()) {
+                    await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), { teamId, email: userToVerify.email });
+                    setLoggedInUser({ id: userDoc.id, ...userData, ...userPayload });
                 } else {
+                    setStep('details');
                     setError('SRN found, but the name does not match.');
                 }
             }
-        } catch (err) {
-            console.error("Login/Signup error:", err);
-            setError('An error occurred. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
+        } catch (err) { console.error("OTP Verification/Signup error:", err); setError('An error occurred.');
+        } finally { setIsLoading(false); }
     };
 
-     if (isCapstone === null) {
-        return (
-             <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
-                <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
-                    <img src={logoPesu} alt="PES University Logo" className="w-28" />
-                    <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2>
-                    <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p>
-                    <div className="flex justify-around">
-                        <button onClick={() => setIsCapstone(true)} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button>
-                        <button onClick={() => setIsCapstone(false)} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button>
-                    </div>
-                </div>
-            </div>
-        );
+     if (step === 'capstone') {
+        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src={logoPesu} alt="PES University Logo" className="w-28" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
+    }
+
+    if (step === 'otp') {
+        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src={logoPesu} alt="PES University Logo" className="w-28" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="spinner-border animate-spin inline-block w-4 h-4 border-2 rounded-full" role="status"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
     }
 
     return (
@@ -188,29 +183,15 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                     <img src={logoPesu} alt="PES University Logo" className="w-28" />
                 </div>
                 <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">PES UNIVERSITY BIOTECHNOLOGY LABS</h2>
-                <p className="text-center text-slate-500 mb-8">Enter your details to sign in or create an account</p>
-
+                <p className="text-center text-slate-500 mb-8">Enter your details to receive an OTP</p>
                 {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
-                
-                <form onSubmit={handleLoginOrSignup} className="space-y-4">
-                    {isCapstone && (
-                         <div>
-                            <label className="text-sm font-semibold text-slate-700">Team Members' SRNs</label>
-                            <input type="text" value={teamMembersStr} onChange={(e) => setTeamMembersStr(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-800 outline-none transition" placeholder="Comma-separated SRNs" required/>
-                        </div>
-                    )}
-                    <div>
-                        <label className="text-sm font-semibold text-slate-700">Your SRN</label>
-                        <input type="text" value={srn} onChange={(e) => setSrn(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-800 outline-none transition" placeholder="e.g., PES1UG22BT001" required/>
-                    </div>
-                    <div>
-                        <label className="text-sm font-semibold text-slate-700">Your Full Name</label>
-                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-800 outline-none transition" placeholder="Your full name" required/>
-                    </div>
-                    <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600 transition-all disabled:from-orange-300 disabled:to-orange-400">
-                        {isLoading ? 'Verifying...' : 'Login / Sign Up'}
-                    </button>
-                    <button type="button" onClick={() => setIsCapstone(null)} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
+                <form onSubmit={handleSendOtp} className="space-y-4">
+                    {isCapstone && ( <div><label className="text-sm font-semibold text-slate-700">Team Members' SRNs</label><input type="text" value={teamMembersStr} onChange={(e) => setTeamMembersStr(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="Comma-separated SRNs" required/></div>)}
+                    <div> <label className="text-sm font-semibold text-slate-700">Your SRN</label> <input type="text" value={srn} onChange={(e) => setSrn(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="e.g., PES1UG22BT001" required/> </div>
+                    <div> <label className="text-sm font-semibold text-slate-700">Your Full Name</label> <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="Your full name" required/> </div>
+                    <div> <label className="text-sm font-semibold text-slate-700">Your Email</label> <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="your.email@example.com" required/> </div>
+                    <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-blue-800 to-blue-900 text-white font-bold rounded-lg hover:shadow-lg"> {isLoading ? 'Sending...' : 'Send OTP'} </button>
+                    <button type="button" onClick={() => setStep('capstone')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
                 </form>
             </div>
         </div>
@@ -254,7 +235,8 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     const [selectedItem, setSelectedItem] = useState(null);
     const [bookings, setBookings] = useState([]);
     const [allBookings, setAllBookings] = useState([]);
-    const [consumableBookings, setConsumableBookings] = useState([]);
+    const [allPastBookings, setAllPastBookings] = useState([]);
+    const [allSupplyBookings, setAllSupplyBookings] = useState([]);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [bookingToCancel, setBookingToCancel] = useState(null);
@@ -317,20 +299,28 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         const q = query(collection(db, bookingsPath)); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), startTime: doc.data().startTime.toDate() }));
-            fetched.sort((a,b) => a.startTime - b.startTime); 
+            const now = new Date();
+            const upcoming = [];
+            const past = [];
             const bookingsWithDetails = fetched.map(booking => {
                 const equipment = equipmentList.find(e => e.id === booking.equipmentId);
                 return {...booking, equipmentName: equipment?.name || 'Unknown', equipmentModel: equipment?.model || '' };
             });
-            setAllBookings(bookingsWithDetails);
+
+            bookingsWithDetails.forEach(b => {
+                if(b.startTime >= now) upcoming.push(b);
+                else past.push(b);
+            });
+
+            setAllBookings(upcoming.sort((a,b) => a.startTime - b.startTime));
+            setAllPastBookings(past.sort((a,b) => b.startTime - a.startTime));
         }, err => { console.error(err); setErrorMessage("Could not load all bookings."); });
 
         const consumableBookingsPath = `/artifacts/${appId}/public/data/consumableBookings`;
         const q2 = query(collection(db, consumableBookingsPath));
         const unsubscribe2 = onSnapshot(q2, (snapshot) => {
             const fetched = snapshot.docs.map(doc => ({id: doc.id, ...doc.data(), returnDate: doc.data().returnDate.toDate(), bookedAt: doc.data().bookedAt.toDate() }));
-            fetched.sort((a,b) => a.bookedAt - b.bookedAt);
-            setConsumableBookings(fetched);
+            setAllSupplyBookings(fetched.sort((a,b) => a.bookedAt - b.bookedAt));
         });
 
         return () => { unsubscribe(); unsubscribe2(); };
@@ -341,7 +331,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     
         const slotDuration = selectedItem.slotDuration || 1;
         let userIdsToCheck = [user.id];
-    
+        
         if (user.teamId) {
             const teamsRef = doc(db, `/artifacts/${appId}/public/data/teams`, user.teamId);
             const teamDoc = await getDoc(teamsRef);
@@ -354,7 +344,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             }
         }
         
-        const allEquipmentBookingsOnDate = allBookings.filter(b => b.equipmentId === selectedItem.id && b.startTime.toDateString() === currentDate.toDateString());
+        const allEquipmentBookingsOnDate = allBookings.concat(allPastBookings).filter(b => b.equipmentId === selectedItem.id && b.startTime.toDateString() === currentDate.toDateString());
         const relevantBookingsForDay = allEquipmentBookingsOnDate.filter(b => userIdsToCheck.includes(b.userId));
     
         if (user.teamId) {
@@ -439,7 +429,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         const duration = selectedItem?.slotDuration || 1;
         const slots = [];
         for (let hour = 9; hour < 17; hour += duration) {
-            if (hour + duration > 17 && duration === 2) continue; // prevent 3-5 slot if it ends at 5
+            if (hour + duration > 17 && duration === 2) continue;
             if (hour + duration > 17 && duration === 1) continue;
             const endHour = hour + duration;
             const formatHour = (h) => h >= 13 ? h - 12 : (h === 0 || h === 12 ? 12 : h);
@@ -479,18 +469,18 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
     };
 
     const MainContent = () => {
-        if (selectedItem?.bookingType === 'quantity' && currentView !== 'supplyBookings') {
+        if (currentView === 'consumableView') {
             return <ConsumableView />;
         }
          switch(currentView) {
             case 'schedule':
                 return <ScheduleView />;
             case 'myBookings':
-                return <BookingsListView bookingsToShow={allBookings.filter(b => b.userId === user.id)} showCancelButton={true} />;
-            case 'allBookings':
-                return <BookingsListView bookingsToShow={allBookings} showCancelButton={false} />;
+                return <BookingHistoryView user={user} upcoming={allBookings.filter(b => b.userId === user.id)} past={allPastBookings.filter(b => b.userId === user.id)} />;
             case 'supplyBookings':
-                return <ConsumableBookingsListView bookings={consumableBookings} user={user} onCancel={setBookingToCancel} />;
+                return <ConsumableBookingsListView bookings={allSupplyBookings} user={user} onCancel={setBookingToCancel} isAdmin={isAdmin} />;
+            case 'adminDashboard':
+                return isAdmin ? <AdminDashboardView allUpcoming={allBookings} allSupplies={allSupplyBookings} onCancel={setBookingToCancel} /> : null;
             default:
                 return <ScheduleView />;
         }
@@ -500,8 +490,8 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         <>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                  <div>
-                    <h2 className="text-2xl font-bold text-slate-800">{selectedItem.name}</h2>
-                    <p className="text-slate-500">{selectedItem.model}</p>
+                    <h2 className="text-2xl font-bold text-slate-800">{selectedItem?.name}</h2>
+                    <p className="text-slate-500">{selectedItem?.model}</p>
                 </div>
                 <div className="flex items-center mt-4 sm:mt-0 bg-slate-100 p-1 rounded-lg">
                     <button onClick={() => handleDateChange(-1)} className="px-4 py-2 rounded-md hover:bg-slate-200 transition">‹</button>
@@ -531,19 +521,19 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         </>
     );
 
-    const BookingsListView = ({ bookingsToShow, showCancelButton }) => (
+    const BookingsListView = ({ bookingsToShow, showCancelButton, title }) => (
         <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-slate-800 mb-4">{showCancelButton ? 'My Booked Equipment' : 'All Booked Equipment'}</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-4">{title}</h2>
             {bookingsToShow.length > 0 ? bookingsToShow.map(booking => (
                 <div key={booking.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center">
                     <div>
                         <p className="font-bold text-blue-800">{booking.equipmentName}</p>
                         <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
-                        <p className="font-semibold mt-1">{booking.startTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {booking.startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+                        <p className="font-semibold mt-1">{booking.startTime.toLocaleString()}</p>
                     </div>
-                    {(showCancelButton && booking.userId === user.id) || isAdmin ? ( <button onClick={() => setBookingToCancel({...booking, bookingType: 'time'})} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button> ) : null}
+                    {(showCancelButton || isAdmin) && <button onClick={() => setBookingToCancel({...booking, bookingType: 'time'})} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button>}
                 </div>
-            )) : <p className="text-center text-slate-500 py-8">No upcoming equipment bookings found.</p>}
+            )) : <p className="text-center text-slate-500 py-8">No bookings found in this category.</p>}
         </div>
     );
     
@@ -567,7 +557,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                  setCurrentView('supplyBookings');
             } catch (error) { console.error("Error booking consumable:", error); setErrorMessage("Failed to book the item."); }
         };
-        const currentItemBookings = consumableBookings.filter(b => b.itemId === selectedItem.id);
+        const currentItemBookings = allSupplyBookings.filter(b => b.itemId === selectedItem.id);
 
         return (
             <div>
@@ -605,11 +595,11 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         );
     };
     
-    const ConsumableBookingsListView = ({ bookings, user, onCancel }) => {
+    const ConsumableBookingsListView = ({ bookings, user, onCancel, isAdmin, title }) => {
         const now = new Date();
         return (
             <div className="space-y-4">
-                <h2 className="text-2xl font-bold text-slate-800">All Supply Bookings</h2>
+                <h2 className="text-2xl font-bold text-slate-800">{title}</h2>
                 {bookings.length > 0 ? bookings.map(booking => {
                     const isDelayed = booking.returnDate < now && booking.status !== 'returned';
                     const canCancel = now < booking.bookedAt;
@@ -632,6 +622,30 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             </div>
         );
     };
+    
+    const AdminDashboardView = ({ allUpcoming, allSupplies, onCancel }) => (
+        <div className="space-y-8">
+            <BookingsListView bookingsToShow={allUpcoming} showCancelButton={true} title="All Upcoming Equipment Bookings"/>
+            <ConsumableBookingsListView bookings={allSupplies} user={user} onCancel={onCancel} isAdmin={isAdmin} title="All Current Supply Bookings"/>
+        </div>
+    );
+    
+    const BookingHistoryView = ({ user, upcoming, past }) => (
+        <div className="space-y-8">
+            <BookingsListView bookingsToShow={upcoming} showCancelButton={true} title="My Upcoming Equipment Bookings"/>
+            <ConsumableBookingsListView bookings={allSupplyBookings.filter(b => b.userId === user.id)} user={user} onCancel={setBookingToCancel} isAdmin={isAdmin} title="My Supply Bookings" />
+            <div className="border-t border-slate-200 pt-8 mt-8">
+                <h2 className="text-2xl font-bold text-slate-800 mb-4">My Past Bookings</h2>
+                {past.length > 0 ? past.map(booking => (
+                     <div key={booking.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 opacity-70">
+                         <p className="font-bold text-blue-800">{booking.equipmentName}</p>
+                         <p className="text-sm text-slate-600">{booking.userName} ({booking.userSrn})</p>
+                         <p className="font-semibold mt-1">{booking.startTime.toLocaleString()}</p>
+                     </div>
+                )) : <p className="text-center text-slate-500 py-8">No past bookings found.</p>}
+            </div>
+        </div>
+    );
 
     return (
         <div className="min-h-screen bg-slate-100" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4d4d8' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`}}>
@@ -649,7 +663,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                         <nav className="flex flex-wrap -mb-px">
                             <button onClick={() => { setCurrentView('schedule'); if(equipmentList.length > 0 && (!selectedItem || selectedItem.bookingType !== 'time')) setSelectedItem(equipmentList[0]);}} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'schedule' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Schedule</button>
                             <button onClick={() => { setCurrentView('myBookings'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'myBookings' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>My Bookings</button>
-                            <button onClick={() => { setCurrentView('allBookings'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'allBookings' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Booked Equipment</button>
+                            {isAdmin && <button onClick={() => { setCurrentView('adminDashboard'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'adminDashboard' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Admin Dashboard</button>}
                             <button onClick={() => { setCurrentView('supplyBookings'); }} className={`py-2 px-4 font-semibold whitespace-nowrap ${currentView === 'supplyBookings' || currentView === 'consumableView' ? 'border-b-2 border-blue-800 text-blue-800' : 'text-slate-500'}`}>Supply Bookings</button>
                         </nav>
                     </div>
