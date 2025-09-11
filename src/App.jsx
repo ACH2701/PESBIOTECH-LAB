@@ -4,6 +4,8 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, getDoc, query, where, Timestamp, getDocs, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import './index.css';
 import logoPesu from './assets/logoPesu.png';
+import axios from 'axios';
+
 
 // --- !!! IMPORTANT: PASTE YOUR FIREBASE CONFIG HERE !!! ---
 const firebaseConfig = {
