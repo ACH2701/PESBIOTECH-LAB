@@ -76,32 +76,16 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     const [teamMembersStr, setTeamMembersStr] = useState('');
     const [srn, setSrn] = useState('');
     const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
+    const [email, setEmail] = useState(''); 
     const [otp, setOtp] = useState('');
-    const [generatedOtp, setGeneratedOtp] = useState(null);
     const [userToVerify, setUserToVerify] = useState(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState('');
-    
     const appId = 'default-lab-booking-app';
 
-    useEffect(() => {
-        const seedAdmin = async () => {
-             if (!db) return;
-            const usersCollectionPath = `/artifacts/${appId}/public/data/users`;
-            const q = query(collection(db, usersCollectionPath), where("srn", "==", "PES1UGBTXXX"));
-            const snapshot = await getDocs(q);
-            if(snapshot.empty) {
-                console.log("Seeding master admin account...");
-                const adminDocRef = doc(usersCollectionPath, "admin_user");
-                await setDoc(adminDocRef, { srn: "PES1UGBTXXX", name: "master", semester: "Admin" });
-            }
-        };
-        seedAdmin();
-    }, [db, appId]);
-    
-    const getOrCreateTeam = async (memberSrns) => {
+    // This function can stay the same
+    const getOrCreateTeam = async (memberSrns) => { 
         const sortedSrns = [...new Set(memberSrns)].sort();
         const teamId = sortedSrns.join('_');
         const teamsRef = collection(db, `/artifacts/${appId}/public/data/teams`);
@@ -112,46 +96,65 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         }
         return teamId;
     };
-
+    
+    // --- THIS IS THE NEW, CORRECT FUNCTION ---
     const handleSendOtp = async (e) => {
         e.preventDefault();
         setError('');
         setMessage('');
+        setIsLoading(true);
+
         if (srn.toUpperCase() !== 'PES1UGBTXXX') {
             const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
             if (!srnRegex.test(srn)) {
-                setError("Invalid SRN format. Must be like PES1UG22BT... through UG25.");
+                setError("Invalid SRN format.");
+                setIsLoading(false);
                 return;
             }
         }
-        setIsLoading(true);
-        // --- OTP Simulation ---
-        const otpCode = Math.floor(100000 + Math.random() * 900000);
-        console.log(`****************\n* OTP FOR ${email}: ${otpCode} *\n****************`);
-        alert(`An OTP has been "sent" to ${email}. Check the browser console to see it.`);
-        setGeneratedOtp(otpCode);
-        setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
-        setStep('otp');
-        setIsLoading(false);
-    };
-
-    const handleVerifyOtp = async () => {
-        if (parseInt(otp) !== generatedOtp) {
-            setError("Invalid OTP. Please try again.");
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            setError("Please enter a valid email address.");
+            setIsLoading(false);
             return;
         }
-        setIsLoading(true);
-        setError('');
+
         try {
+            // It now calls your backend API to send a REAL email
+            await axios.post('/api/send-otp', { email: email });
+            
+            setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
+            setMessage(`An OTP has been sent to ${email}. Please check your inbox.`);
+            setStep('otp');
+        } catch (err) {
+            console.error("Send OTP error:", err);
+            setError(err.response?.data?.error || 'Failed to send OTP. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    // --- THIS IS THE NEW, CORRECT VERIFY FUNCTION ---
+    const handleVerifyOtp = async () => {
+        setError('');
+        setIsLoading(true);
+
+        try {
+            // It now calls your backend API to verify the OTP
+            await axios.post('/api/verify-otp', { email: userToVerify.email, otp: otp });
+
+            // The rest of the logic is for Firestore
             const usersRef = collection(db, `/artifacts/${appId}/public/data/users`);
             const q = query(usersRef, where("srn", "==", userToVerify.srn.toUpperCase()));
             const querySnapshot = await getDocs(q);
             let teamId = null;
+
             if (userToVerify.isCapstone) {
                 const memberSrns = userToVerify.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
                 if (!memberSrns.includes(userToVerify.srn.toUpperCase())) { memberSrns.push(userToVerify.srn.toUpperCase()); }
                 teamId = await getOrCreateTeam(memberSrns);
             }
+            
             const userPayload = { teamId, email: userToVerify.email };
 
             if (querySnapshot.empty) {
@@ -162,18 +165,23 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                 const userDoc = querySnapshot.docs[0];
                 const userData = userDoc.data();
                 if (userData.name.toLowerCase() === userToVerify.name.toLowerCase()) {
-                    await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), { teamId, email: userToVerify.email });
+                    await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), userPayload);
                     setLoggedInUser({ id: userDoc.id, ...userData, ...userPayload });
                 } else {
                     setStep('details');
                     setError('SRN found, but the name does not match.');
                 }
             }
-        } catch (err) { console.error("OTP Verification/Signup error:", err); setError('An error occurred.');
-        } finally { setIsLoading(false); }
+        } catch (err) {
+            console.error("OTP Verification/Signup error:", err);
+            setError(err.response?.data?.error || 'An error occurred during verification.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-     if (step === 'capstone') {
+    // --- The rest of the component's JSX stays the same ---
+    if (step === 'capstone') {
         return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <img src={logoPesu} alt="PES University Logo" className="w-28" /><h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
     }
 
