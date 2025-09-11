@@ -3,10 +3,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, getDoc, query, where, Timestamp, getDocs, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import './index.css';
-import logoPesu from './assets/logoPesu.png';
 
-// --- !!! IMPORTANT: PASTE YOUR FIREBASE CONFIG HERE FOR LOCAL TESTING !!! ---
-// For deployment, this will be replaced by secure Environment Variables (see README.md).
+// --- !!! IMPORTANT: PASTE YOUR FIREBASE CONFIG HERE !!! ---
 const firebaseConfig = {
   apiKey: "AIzaSyDzCiSuTiaa7vhXs_2GoSXLwqSjANMsRDk",
   authDomain: "pes-university-biotech-labs.firebaseapp.com",
@@ -16,7 +14,6 @@ const firebaseConfig = {
   appId: "1:414683717628:web:f5953b3f9c6d9b8edbdc79",
   measurementId: "G-GDHGE0MESX"
 };
-
 // --- Main App Component (Acts as a router) ---
 const App = () => {
     const [db, setDb] = useState(null);
@@ -79,12 +76,13 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [otp, setOtp] = useState('');
+    const [generatedOtp, setGeneratedOtp] = useState(null);
+    const [userToVerify, setUserToVerify] = useState(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState('');
     
     const appId = 'default-lab-booking-app';
-    const cloudFunctionBaseUrl = `https://us-central1-${firebaseConfig.projectId || "YOUR_PROJECT_ID"}.cloudfunctions.net`;
 
     useEffect(() => {
         const seedAdmin = async () => {
@@ -94,7 +92,8 @@ const LoginPage = ({ db, setLoggedInUser }) => {
             const snapshot = await getDocs(q);
             if(snapshot.empty) {
                 console.log("Seeding master admin account...");
-                await addDoc(collection(db, usersCollectionPath), { srn: "PES1UGBTXXX", name: "master", semester: "Admin" });
+                const adminDocRef = doc(usersCollectionPath, "admin_user");
+                await setDoc(adminDocRef, { srn: "PES1UGBTXXX", name: "master", semester: "Admin" });
             }
         };
         seedAdmin();
@@ -107,7 +106,7 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         const teamDocRef = doc(teamsRef, teamId);
         const teamDoc = await getDoc(teamDocRef);
         if (!teamDoc.exists()) {
-            await setDoc(teamDocRef, { memberSrns: sortedSrns });
+            await setDoc(teamDocRef, { memberSrns: sortedSrns, id: teamId });
         }
         return teamId;
     };
@@ -124,83 +123,67 @@ const LoginPage = ({ db, setLoggedInUser }) => {
             }
         }
         setIsLoading(true);
-        try {
-            const response = await fetch(`${cloudFunctionBaseUrl}/sendOtp`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email: email })
-            });
-            const data = await response.json();
-            if(!response.ok) throw new Error(data.error || 'Failed to send OTP.');
-            setMessage('OTP has been sent to your email.');
-            setStep('otp');
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setIsLoading(false);
-        }
+        // --- OTP Simulation ---
+        const otpCode = Math.floor(100000 + Math.random() * 900000);
+        console.log(`****************\n* OTP FOR ${email}: ${otpCode} *\n****************`);
+        alert(`An OTP has been "sent" to ${email}. Check the browser console to see it.`);
+        setGeneratedOtp(otpCode);
+        setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
+        setStep('otp');
+        setIsLoading(false);
     };
 
     const handleVerifyOtp = async () => {
+        if (parseInt(otp) !== generatedOtp) {
+            setError("Invalid OTP. Please try again.");
+            return;
+        }
         setIsLoading(true);
         setError('');
         try {
-            const response = await fetch(`${cloudFunctionBaseUrl}/verifyOtp`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email, otp })
-            });
-            const data = await response.json();
-            if(!response.ok) throw new Error(data.error || 'Failed to verify OTP.');
-
             const usersRef = collection(db, `/artifacts/${appId}/public/data/users`);
-            const q = query(usersRef, where("srn", "==", srn.toUpperCase()));
+            const q = query(usersRef, where("srn", "==", userToVerify.srn.toUpperCase()));
             const querySnapshot = await getDocs(q);
-            
             let teamId = null;
-            if (isCapstone) {
-                const memberSrns = teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-                if (!memberSrns.includes(srn.toUpperCase())) { memberSrns.push(srn.toUpperCase()); }
+            if (userToVerify.isCapstone) {
+                const memberSrns = userToVerify.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+                if (!memberSrns.includes(userToVerify.srn.toUpperCase())) { memberSrns.push(userToVerify.srn.toUpperCase()); }
                 teamId = await getOrCreateTeam(memberSrns);
             }
-            const userPayload = { teamId, email };
+            const userPayload = { teamId, email: userToVerify.email };
 
             if (querySnapshot.empty) {
-                const newUser = { srn: srn.toUpperCase(), name, semester: "N/A", ...userPayload };
+                const newUser = { srn: userToVerify.srn.toUpperCase(), name: userToVerify.name, semester: "N/A", ...userPayload };
                 const userDocRef = await addDoc(usersRef, newUser);
                 setLoggedInUser({ id: userDocRef.id, ...newUser });
             } else {
                 const userDoc = querySnapshot.docs[0];
                 const userData = userDoc.data();
-                if (userData.name.toLowerCase() === name.toLowerCase()) {
-                    await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), userPayload);
+                if (userData.name.toLowerCase() === userToVerify.name.toLowerCase()) {
+                    await updateDoc(doc(db, `/artifacts/${appId}/public/data/users`, userDoc.id), { teamId, email: userToVerify.email });
                     setLoggedInUser({ id: userDoc.id, ...userData, ...userPayload });
                 } else {
                     setStep('details');
                     setError('SRN found, but the name does not match.');
                 }
             }
-        } catch (err) { 
-            console.error("OTP Verification/Signup error:", err); 
-            setError(err.message);
-        } finally { 
-            setIsLoading(false); 
-        }
+        } catch (err) { console.error("OTP Verification/Signup error:", err); setError('An error occurred.');
+        } finally { setIsLoading(false); }
     };
 
      if (step === 'capstone') {
-        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src={logoPesu} alt="PES University Logo" className="w-28" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
+        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src="https://www.pes.edu/wp-content/uploads/2022/11/PESU-new-logo.png" alt="PES University Logo" className="w-28 mx-auto mb-6" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-2">Welcome!</h2> <p className="text-center text-slate-600 mb-8">Are you booking equipment for a capstone project?</p> <div className="flex justify-around"> <button onClick={() => {setIsCapstone(true); setStep('details')}} className="w-full mr-2 p-3 bg-blue-800 text-white font-bold rounded-lg hover:bg-blue-900 transition-all">Yes</button> <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button> </div> </div> </div> );
     }
 
     if (step === 'otp') {
-        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src={logoPesu} alt="PES University Logo" className="w-28" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="spinner-border animate-spin inline-block w-4 h-4 border-2 rounded-full" role="status"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
+        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200"> <img src="https://www.pes.edu/wp-content/uploads/2022/11/PESU-new-logo.png" alt="PES University Logo" className="w-28 mx-auto mb-6" /> <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
     }
 
     return (
         <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
             <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
                 <div className="flex justify-center mb-6">
-                    <img src={logoPesu} alt="PES University Logo" className="w-28" />
+                    <img src="https://www.pes.edu/wp-content/uploads/2022/11/PESU-new-logo.png" alt="PES University Logo" className="w-28" />
                 </div>
                 <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">PES UNIVERSITY BIOTECHNOLOGY LABS</h2>
                 <p className="text-center text-slate-500 mb-8">Enter your details to receive an OTP</p>
@@ -289,7 +272,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         const seedData = async () => {
             const docSnap = await getDocs(query(collection(db, equipmentCollectionPath)));
             if (docSnap.empty) {
-                const initialItems = [ { id: "autoclave_01", name: "Autoclave", model: "Autoclave Model", bookingType: 'time', slotDuration: 2 }, { id: "laf_01", name: "LAF", model: "LAF Model", bookingType: 'time', slotDuration: 1 }, { id: "multimeter_01", name: "Digital Multimeter", model: "Fluke 87V", bookingType: 'time', slotDuration: 1 }, { id: "beaker_250ml_01", name: "Beaker 250ml", model: "Borosilicate", bookingType: 'quantity' }, { id: "flask_500ml_01", name: "Flask 500ml", model: "Erlenmeyer", bookingType: 'quantity' }, ];
+                const initialItems = [ { id: "autoclave_01", name: "Autoclave", model: "Autoclave Model", bookingType: 'time', slotDuration: 2 }, { id: "laf_01", name: "LAF", model: "LAF Model", bookingType: 'time', slotDuration: 1 }, { id: "beaker_250ml_01", name: "Beaker 250ml", model: "Borosilicate", bookingType: 'quantity' }, { id: "flask_500ml_01", name: "Flask 500ml", model: "Erlenmeyer", bookingType: 'quantity' }, ];
                 for (const item of initialItems) { await setDoc(doc(db, equipmentCollectionPath, item.id), item); }
             }
         };
@@ -408,12 +391,24 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         } catch (error) { console.error("Error cancelling booking:", error); setErrorMessage("Failed to cancel booking."); }
     };
     
-    const handleProfileUpdate = async (newName) => {
-        if (!newName.trim()) return;
+    const handleProfileUpdate = async (updatedFields) => {
+        if (!user) return;
+        let finalFields = { ...updatedFields };
+
+        if (updatedFields.teamMembersStr) {
+            const memberSrns = updatedFields.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+            if (user.srn && !memberSrns.includes(user.srn.toUpperCase())) {
+                memberSrns.push(user.srn.toUpperCase());
+            }
+            const teamId = await getOrCreateTeam(memberSrns);
+            finalFields.teamId = teamId;
+        }
+        delete finalFields.teamMembersStr;
+
         try {
             const userDocRef = doc(db, `/artifacts/${appId}/public/data/users`, user.id);
-            await updateDoc(userDocRef, { name: newName.trim() });
-            onUpdateUser({ ...user, name: newName.trim() });
+            await updateDoc(userDocRef, finalFields);
+            onUpdateUser({ ...user, ...finalFields });
             setIsEditProfileModalOpen(false);
         } catch (error) { console.error("Profile update failed", error); }
     };
@@ -619,7 +614,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         const now = new Date();
         return (
             <div className="space-y-4">
-                <h2 className="text-2xl font-bold text-slate-800">{title}</h2>
+                <h2 className="text-2xl font-bold text-slate-800 mb-4">{title}</h2>
                 {bookings.length > 0 ? bookings.map(booking => {
                     const isDelayed = booking.returnDate < now && booking.status !== 'returned';
                     const canCancel = now < booking.bookedAt;
@@ -692,7 +687,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             </div>
             {isBookingModalOpen && <ConfirmationModal selectedEquipment={selectedItem} selectedSlot={selectedSlot} currentDate={currentDate} onConfirm={handleConfirmBooking} onCancel={() => setIsBookingModalOpen(false)} />}
             {bookingToCancel && <CancelConfirmationModal booking={bookingToCancel} onConfirm={handleCancelBooking} onCancel={() => setBookingToCancel(null)} />}
-            {isEditProfileModalOpen && <EditProfileModal user={user} onSave={handleProfileUpdate} onCancel={() => setIsEditProfileModalOpen(false)} />}
+            {isEditProfileModalOpen && <EditProfileModal user={user} onSave={handleProfileUpdate} onCancel={() => setIsEditProfileModalOpen(false)} db={db} />}
             {isDeleteAccountModalOpen && <DeleteConfirmationModal onConfirm={handleDeleteAccount} onCancel={() => setIsDeleteAccountModalOpen(false)} />}
         </div>
     );
@@ -727,17 +722,71 @@ const CancelConfirmationModal = ({ booking, onConfirm, onCancel }) => {
         </div>
     );
 };
-const EditProfileModal = ({ user, onSave, onCancel }) => {
+const EditProfileModal = ({ user, onSave, onCancel, db }) => {
     const [name, setName] = useState(user.name);
+    const [srn, setSrn] = useState(user.srn);
+    const [teamMembersStr, setTeamMembersStr] = useState('');
+    const [error, setError] = useState('');
+    
+    const appId = 'default-lab-booking-app';
+
+    const getOrCreateTeam = async (memberSrns) => {
+        const sortedSrns = [...new Set(memberSrns)].sort();
+        const teamId = sortedSrns.join('_');
+        const teamsRef = collection(db, `/artifacts/${appId}/public/data/teams`);
+        const teamDocRef = doc(teamsRef, teamId);
+        const teamDoc = await getDoc(teamDocRef);
+        if (!teamDoc.exists()) {
+            await setDoc(teamDocRef, { memberSrns: sortedSrns });
+        }
+        return teamId;
+    };
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        setError('');
+
+        if (srn && srn.toUpperCase() !== 'PES1UGBTXXX') {
+            const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
+            if (!srnRegex.test(srn)) {
+                setError("Invalid SRN format.");
+                return;
+            }
+        }
+
+        let teamId = user.teamId;
+        if (teamMembersStr) {
+            const memberSrns = teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+            if (srn && !memberSrns.includes(srn.toUpperCase())) {
+                memberSrns.push(srn.toUpperCase());
+            }
+            teamId = await getOrCreateTeam(memberSrns);
+        }
+
+        onSave({ name, srn: srn.toUpperCase(), teamId });
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <form onSubmit={(e) => { e.preventDefault(); onSave(name); }} className="bg-white rounded-lg shadow-2xl p-8 max-w-sm w-full">
-                <h3 className="text-xl font-bold mb-4">Edit Profile</h3>
+            <form onSubmit={handleSave} className="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full space-y-4">
+                <h3 className="text-xl font-bold mb-2">Edit Profile</h3>
+                {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg text-sm">{error}</p>}
                 <div>
                     <label className="text-sm font-semibold text-slate-700">Name</label>
                     <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg"/>
                 </div>
-                <div className="flex justify-end space-x-4 mt-6"><button type="button" onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200">Cancel</button><button type="submit" className="px-6 py-2 rounded-lg bg-orange-500 text-white">Save</button></div>
+                 <div>
+                    <label className="text-sm font-semibold text-slate-700">Your SRN</label>
+                    <input type="text" value={srn} onChange={(e) => setSrn(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="e.g., PES1UG22BT001"/>
+                </div>
+                <div>
+                    <label className="text-sm font-semibold text-slate-700">Team Members' SRNs (for Capstone)</label>
+                    <input type="text" value={teamMembersStr} onChange={(e) => setTeamMembersStr(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="Comma-separated SRNs"/>
+                </div>
+                <div className="flex justify-end space-x-4 pt-4">
+                    <button type="button" onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200">Cancel</button>
+                    <button type="submit" className="px-6 py-2 rounded-lg bg-orange-500 text-white">Save</button>
+                </div>
             </form>
         </div>
     );
@@ -749,7 +798,7 @@ const DeleteConfirmationModal = ({ onConfirm, onCancel }) => {
                 <h3 className="text-xl font-bold text-orange-600 mb-2">Delete Account?</h3>
                 <p className="text-slate-600 mb-4">Are you sure? This will permanently delete your account and all of your current and past bookings. This action cannot be undone.</p>
                 <div className="flex justify-end space-x-4 mt-6">
-                    <button onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200 hover:bg-slate-300">Cancel</button>
+                    <button onClick={onCancel} className="px-6 py-2 rounded-lg bg-slate-200 hover:bg-slate-300">Keep it</button>
                     <button onClick={onConfirm} className="px-6 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700">Yes, Delete My Account</button>
                 </div>
             </div>
