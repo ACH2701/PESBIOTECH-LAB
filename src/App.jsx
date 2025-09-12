@@ -191,12 +191,34 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                         <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button>
                     </div>
                 </div>
+                    <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
             </div>
         );
     }
 
     if (step === 'otp') {
         return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
+            return (
+                <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
+                    <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
+                        <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2>
+                        <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p>
+                        {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
+                        {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>}
+                        <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4">
+                            <div>
+                                <label className="text-sm font-semibold text-slate-700">OTP Code</label>
+                                <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/>
+                            </div>
+                            <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600">
+                                {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'}
+                            </button>
+                            <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
+                        </form>
+                    </div>
+                    <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
+                </div>
+            );
     }
 
     return (
@@ -217,6 +239,7 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                     <button type="button" onClick={() => setStep('capstone')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
                 </form>
             </div>
+            <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
         </div>
     );
 };
@@ -408,6 +431,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             const bookingsPath = bookingToCancel.bookingType === 'time' ? 'bookings' : 'consumableBookings';
             const bookingDocRef = doc(db, `/artifacts/${appId}/public/data/${bookingsPath}`, bookingToCancel.id);
             await deleteDoc(bookingDocRef);
+                    <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
             setBookingToCancel(null);
         } catch (error) { console.error("Error cancelling booking:", error); setErrorMessage("Failed to cancel booking."); }
     };
@@ -570,6 +594,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                     {showCancelButton && <button onClick={() => setBookingToCancel({...booking, bookingType: 'time'})} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button>}
                 </div>
             )) : <p className="text-center text-slate-500 py-8">No bookings found in this category.</p>}
+            <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
         </div>
     );
     
