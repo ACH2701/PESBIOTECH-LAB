@@ -68,12 +68,7 @@ const App = () => {
         return <LoginPage db={db} setLoggedInUser={setLoggedInUser} />;
     }
 
-    return (
-  <>
-    <BookingPage db={db} user={loggedInUser} onLogout={() => setLoggedInUser(null)} onUpdateUser={handleUserUpdate} />
-    <Analytics />
-  </>
-);
+    return <BookingPage db={db} user={loggedInUser} onLogout={() => setLoggedInUser(null)} onUpdateUser={handleUserUpdate} />;
 };
 
 
