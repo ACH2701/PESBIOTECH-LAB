@@ -5,7 +5,6 @@ import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, getDoc, quer
 import './index.css';
 import logoPesu from './assets/logoPesu.png';
 import axios from 'axios';
-import { Analytics } from "@vercel/analytics/next"
 
 
 // --- !!! IMPORTANT: PASTE YOUR FIREBASE CONFIG HERE !!! ---
