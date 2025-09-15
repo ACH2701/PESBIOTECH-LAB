@@ -408,18 +408,11 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
         }
         const allEquipmentBookingsOnDate = allBookings.concat(allPastBookings).filter(b => b.equipmentId === selectedItem.id && b.startTime.toDateString() === currentDate.toDateString());
         const relevantBookingsForDay = allEquipmentBookingsOnDate.filter(b => userIdsToCheck.includes(b.userId));
-        // Restrict teams to only one slot per day if slotDuration is 2
-        if (user.teamId && slotDuration === 2) {
-            if (relevantBookingsForDay.length >= 1) {
-                setErrorMessage("Your team can only book one 2-hour slot for this item per day.");
-                setIsBookingModalOpen(false);
-                return;
-            }
-        } else if (user.teamId) {
+        if (user.teamId) {
             if (relevantBookingsForDay.length >= 2) {
-                setErrorMessage("Your team has reached the maximum of 2 slots for this item today.");
-                setIsBookingModalOpen(false);
-                return;
+                 setErrorMessage("Your team has reached the maximum of 2 slots for this item today.");
+                 setIsBookingModalOpen(false);
+                 return;
             }
             if (relevantBookingsForDay.length === 1) {
                 const existingHour = relevantBookingsForDay[0].startTime.getHours();
@@ -431,10 +424,10 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                 }
             }
         } else {
-            if (relevantBookingsForDay.length >= 1) {
-                setErrorMessage("You can only book one slot per day for this item.");
-                setIsBookingModalOpen(false);
-                return;
+             if (relevantBookingsForDay.length >= 1) {
+                 setErrorMessage("You can only book one slot per day for this item.");
+                 setIsBookingModalOpen(false);
+                 return;
             }
         }
         const startTime = new Date(currentDate); startTime.setHours(selectedSlot, 0, 0, 0);
@@ -442,7 +435,13 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             const bookingsPath = `/artifacts/${appId}/public/data/bookings`;
             await addDoc(collection(db, bookingsPath), { equipmentId: selectedItem.id, userId: user.id, userName: user.name, userSrn: user.srn, teamId: user.teamId || null, startTime: Timestamp.fromDate(startTime), bookedAt: Timestamp.now() });
             setIsBookingModalOpen(false); setSelectedSlot(null);
-        } catch (error) { console.error("Error creating booking:", error); setErrorMessage("Failed to book the slot."); }
+            // --- Send booking confirmation email ---
+            await axios.post('/api/send-booking-confirmation', {
+                to: user.email,
+                subject: 'Lab Booking Confirmation',
+                body: `Dear ${user.name},\n\nYour booking is confirmed.\n\nDetails:\n- Equipment: ${selectedItem.name}\n- Capstone Project: ${user.teamId ? 'Yes' : 'No'}\n- Name: ${user.name}\n- SRN: ${user.srn}\n- Date: ${startTime.toLocaleDateString()}\n- Time: ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n- Duration: ${slotDuration} hour(s)\n\nThank you for using the PES Biotech Lab Booking System.`
+            });
+        } catch (error) { console.error("Error creating booking or sending email:", error); setErrorMessage("Failed to book the slot or send confirmation email."); }
     };
     
     const handleCancelBooking = async () => {
