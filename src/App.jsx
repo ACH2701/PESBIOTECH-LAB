@@ -375,10 +375,8 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
 
     const handleConfirmBooking = async () => {
         if (!user || !selectedItem || selectedSlot === null) return;
-    
         const slotDuration = selectedItem.slotDuration || 1;
         let userIdsToCheck = [user.id];
-        
         if (user.teamId) {
             const teamsRef = doc(db, `/artifacts/${appId}/public/data/teams`, user.teamId);
             const teamDoc = await getDoc(teamsRef);
@@ -390,15 +388,20 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                 userIdsToCheck = teamUsersSnap.docs.map(doc => doc.id);
             }
         }
-        
         const allEquipmentBookingsOnDate = allBookings.concat(allPastBookings).filter(b => b.equipmentId === selectedItem.id && b.startTime.toDateString() === currentDate.toDateString());
         const relevantBookingsForDay = allEquipmentBookingsOnDate.filter(b => userIdsToCheck.includes(b.userId));
-    
-        if (user.teamId) {
+        // Restrict teams to only one slot per day if slotDuration is 2
+        if (user.teamId && slotDuration === 2) {
+            if (relevantBookingsForDay.length >= 1) {
+                setErrorMessage("Your team can only book one 2-hour slot for this item per day.");
+                setIsBookingModalOpen(false);
+                return;
+            }
+        } else if (user.teamId) {
             if (relevantBookingsForDay.length >= 2) {
-                 setErrorMessage("Your team has reached the maximum of 2 slots for this item today.");
-                 setIsBookingModalOpen(false);
-                 return;
+                setErrorMessage("Your team has reached the maximum of 2 slots for this item today.");
+                setIsBookingModalOpen(false);
+                return;
             }
             if (relevantBookingsForDay.length === 1) {
                 const existingHour = relevantBookingsForDay[0].startTime.getHours();
@@ -410,13 +413,12 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                 }
             }
         } else {
-             if (relevantBookingsForDay.length >= 1) {
-                 setErrorMessage("You can only book one slot per day for this item.");
-                 setIsBookingModalOpen(false);
-                 return;
+            if (relevantBookingsForDay.length >= 1) {
+                setErrorMessage("You can only book one slot per day for this item.");
+                setIsBookingModalOpen(false);
+                return;
             }
         }
-    
         const startTime = new Date(currentDate); startTime.setHours(selectedSlot, 0, 0, 0);
         try {
             const bookingsPath = `/artifacts/${appId}/public/data/bookings`;
@@ -431,32 +433,10 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             const bookingsPath = bookingToCancel.bookingType === 'time' ? 'bookings' : 'consumableBookings';
             const bookingDocRef = doc(db, `/artifacts/${appId}/public/data/${bookingsPath}`, bookingToCancel.id);
             await deleteDoc(bookingDocRef);
-                    <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
             setBookingToCancel(null);
         } catch (error) { console.error("Error cancelling booking:", error); setErrorMessage("Failed to cancel booking."); }
     };
-    
-    const handleProfileUpdate = async (updatedFields) => {
-        if (!user) return;
-        let finalFields = { ...updatedFields };
-
-        if (updatedFields.teamMembersStr) {
-            const memberSrns = updatedFields.teamMembersStr.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-            if (user.srn && !memberSrns.includes(user.srn.toUpperCase())) {
-                memberSrns.push(user.srn.toUpperCase());
-            }
-            const teamId = await getOrCreateTeam(memberSrns);
-            finalFields.teamId = teamId;
-        }
-        delete finalFields.teamMembersStr;
-
-        try {
-            const userDocRef = doc(db, `/artifacts/${appId}/public/data/users`, user.id);
-            await updateDoc(userDocRef, finalFields);
-            onUpdateUser({ ...user, ...finalFields });
-            setIsEditProfileModalOpen(false);
-        } catch (error) { console.error("Profile update failed", error); }
-    };
+    // ...existing code for handleProfileUpdate...
 
     const handleDeleteAccount = async () => {
         if (!user || !db) return;
