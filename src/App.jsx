@@ -202,7 +202,7 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                         <button onClick={() => {setIsCapstone(false); setStep('details')}} className="w-full ml-2 p-3 bg-slate-200 text-slate-800 font-bold rounded-lg hover:bg-slate-300 transition-all">No</button>
                     </div>
                 </div>
-                    <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
+                <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
             </div>
         );
     }
@@ -258,7 +258,6 @@ const LoginPage = ({ db, setLoggedInUser }) => {
                     <button type="button" onClick={() => setStep('capstone')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
                 </form>
             </div>
-            <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
         </div>
     );
 };
@@ -593,7 +592,6 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
                     {showCancelButton && <button onClick={() => setBookingToCancel({...booking, bookingType: 'time'})} className="mt-2 sm:mt-0 ml-auto bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 text-sm font-semibold">Cancel</button>}
                 </div>
             )) : <p className="text-center text-slate-500 py-8">No bookings found in this category.</p>}
-            <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
         </div>
     );
     
@@ -734,6 +732,9 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             {bookingToCancel && <CancelConfirmationModal booking={bookingToCancel} onConfirm={handleCancelBooking} onCancel={() => setBookingToCancel(null)} />}
             {isEditProfileModalOpen && <EditProfileModal user={user} onSave={handleProfileUpdate} onCancel={() => setIsEditProfileModalOpen(false)} db={db} />}
             {isDeleteAccountModalOpen && <DeleteConfirmationModal onConfirm={handleDeleteAccount} onCancel={() => setIsDeleteAccountModalOpen(false)} />}
+            <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">
+                Developed and maintained by Achint Kiran
+            </footer>
         </div>
     );
 };
@@ -851,19 +852,5 @@ const DeleteConfirmationModal = ({ onConfirm, onCancel }) => {
     );
 };
 
-// Global footer for all pages
-const GlobalFooter = () => (
-    <footer className="w-full text-center py-2 text-xs text-slate-400 select-none pointer-events-none" style={{position: 'fixed', left: 0, bottom: 0, width: '100%', background: 'transparent', zIndex: 50}}>
-        Developed and maintained by Achint Kiran
-    </footer>
-);
-
-const AppWithFooter = () => (
-    <>
-        <App />
-        <GlobalFooter />
-    </>
-);
-
-export default AppWithFooter;
+export default App;
 
