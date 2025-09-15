@@ -84,6 +84,8 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState('');
+    const [otpSentTime, setOtpSentTime] = useState(null);
+    const [resendCountdown, setResendCountdown] = useState(0);
     const appId = 'default-lab-booking-app';
 
     const getOrCreateTeam = async (memberSrns) => { 
@@ -98,12 +100,11 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         return teamId;
     };
     
-    const handleSendOtp = async (e) => {
-        e.preventDefault();
+    const handleSendOtp = async (e, isResend = false) => {
+        if (e) e.preventDefault();
         setError('');
         setMessage('');
         setIsLoading(true);
-
         if (srn.toUpperCase() !== 'PES1UGBTXXX') {
             const srnRegex = /^PES1UG(22|23|24|25)BT\d{3}$/i;
             if (!srnRegex.test(srn)) {
@@ -118,12 +119,13 @@ const LoginPage = ({ db, setLoggedInUser }) => {
             setIsLoading(false);
             return;
         }
-
         try {
             await axios.post('/api/send-otp', { email: email });
             setUserToVerify({ srn, name, email, isCapstone, teamMembersStr });
             setMessage(`An OTP has been sent to ${email}. Please check your inbox.`);
-            setStep('otp');
+            setOtpSentTime(Date.now());
+            setResendCountdown(60);
+            if (!isResend) setStep('otp');
         } catch (err) {
             console.error("Send OTP error:", err);
             const errorMessage = err.response?.data?.error || 'Failed to send OTP. Please try again.';
@@ -177,6 +179,15 @@ const LoginPage = ({ db, setLoggedInUser }) => {
         }
     };
 
+    // Countdown effect for resend OTP
+    useEffect(() => {
+        let timer;
+        if (resendCountdown > 0) {
+            timer = setTimeout(() => setResendCountdown(resendCountdown - 1), 1000);
+        }
+        return () => clearTimeout(timer);
+    }, [resendCountdown]);
+
     if (step === 'capstone') {
         return (
             <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
@@ -197,28 +208,36 @@ const LoginPage = ({ db, setLoggedInUser }) => {
     }
 
     if (step === 'otp') {
-        return ( <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4"> <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">  <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2> <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p> {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>} {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>} <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4"> <div> <label className="text-sm font-semibold text-slate-700">OTP Code</label> <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/> </div> <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600"> {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'} </button> <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button> </form> </div> </div> );
-            return (
-                <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
-                    <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
-                        <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2>
-                        <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p>
-                        {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
-                        {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>}
-                        <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4">
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">OTP Code</label>
-                                <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/>
-                            </div>
-                            <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600">
-                                {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'}
-                            </button>
-                            <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
-                        </form>
+        return (
+            <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4">
+                <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-200">
+                    <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">Verify Your Email</h2>
+                    <p className="text-center text-slate-500 mb-8">Enter the 6-digit code sent to your email</p>
+                    {error && <p className="bg-orange-100 text-orange-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
+                    {message && <p className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-sm">{message}</p>}
+                    <form onSubmit={(e) => { e.preventDefault(); handleVerifyOtp();}} className="space-y-4">
+                        <div>
+                            <label className="text-sm font-semibold text-slate-700">OTP Code</label>
+                            <input type="number" value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full p-3 mt-1 bg-slate-100 rounded-lg" placeholder="123456" required/>
+                        </div>
+                        <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:shadow-lg hover:from-orange-600">
+                            {isLoading ? <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div> : 'Verify & Login'}
+                        </button>
+                        <button type="button" onClick={() => setStep('details')} className="w-full text-center text-sm text-blue-800 hover:underline mt-2">Go Back</button>
+                    </form>
+                    <div className="mt-4 text-center">
+                        <button
+                            type="button"
+                            disabled={resendCountdown > 0}
+                            onClick={(e) => handleSendOtp(e, true)}
+                            className={`px-4 py-2 rounded-lg text-xs font-semibold ${resendCountdown > 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-800 text-white hover:bg-blue-900'}`}
+                        >
+                            {resendCountdown > 0 ? `Resend OTP in ${resendCountdown}s` : 'Resend OTP'}
+                        </button>
                     </div>
-                    <footer className="w-full text-center py-2 text-xs text-slate-400 mt-8 select-none pointer-events-none">Developed and maintained by Achint Kiran</footer>
                 </div>
-            );
+            </div>
+        );
     }
 
     return (
@@ -832,5 +851,19 @@ const DeleteConfirmationModal = ({ onConfirm, onCancel }) => {
     );
 };
 
-export default App;
+// Global footer for all pages
+const GlobalFooter = () => (
+    <footer className="w-full text-center py-2 text-xs text-slate-400 select-none pointer-events-none" style={{position: 'fixed', left: 0, bottom: 0, width: '100%', background: 'transparent', zIndex: 50}}>
+        Developed and maintained by Achint Kiran
+    </footer>
+);
+
+const AppWithFooter = () => (
+    <>
+        <App />
+        <GlobalFooter />
+    </>
+);
+
+export default AppWithFooter;
 
