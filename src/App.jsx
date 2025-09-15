@@ -435,13 +435,7 @@ const BookingPage = ({ db, user, onLogout, onUpdateUser }) => {
             const bookingsPath = `/artifacts/${appId}/public/data/bookings`;
             await addDoc(collection(db, bookingsPath), { equipmentId: selectedItem.id, userId: user.id, userName: user.name, userSrn: user.srn, teamId: user.teamId || null, startTime: Timestamp.fromDate(startTime), bookedAt: Timestamp.now() });
             setIsBookingModalOpen(false); setSelectedSlot(null);
-            // --- Send booking confirmation email ---
-            await axios.post('/api/send-booking-confirmation', {
-                to: user.email,
-                subject: 'Lab Booking Confirmation',
-                body: `Dear ${user.name},\n\nYour booking is confirmed.\n\nDetails:\n- Equipment: ${selectedItem.name}\n- Capstone Project: ${user.teamId ? 'Yes' : 'No'}\n- Name: ${user.name}\n- SRN: ${user.srn}\n- Date: ${startTime.toLocaleDateString()}\n- Time: ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n- Duration: ${slotDuration} hour(s)\n\nThank you for using the PES Biotech Lab Booking System.`
-            });
-        } catch (error) { console.error("Error creating booking or sending email:", error); setErrorMessage("Failed to book the slot or send confirmation email."); }
+        } catch (error) { console.error("Error creating booking:", error); setErrorMessage("Failed to book the slot."); }
     };
     
     const handleCancelBooking = async () => {
