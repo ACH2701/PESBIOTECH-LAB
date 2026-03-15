@@ -27,7 +27,7 @@ export default async (req, res) => {
       return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
     }
 
-    const isValid = await bcrypt.compare(otp, otpHash);
+    const isValid = await bcrypt.compare(String(otp), otpHash);
     
     await otpRef.delete();
 
