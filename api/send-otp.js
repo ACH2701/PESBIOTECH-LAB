@@ -18,7 +18,6 @@ export default async (req, res) => {
   try {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const hashedOtp = await bcrypt.hash(otp, 10);
-    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minute expiry
 
     const db = await initializeDb();
     const otpRef = db.collection('otp_verifications').doc(email);
