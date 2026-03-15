@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import bcrypt from 'bcryptjs';
+import { Timestamp } from 'firebase-admin/firestore';
 import { initializeDb } from './_firebase-admin.js'; // <-- FIX: Added .js extension
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -23,7 +24,7 @@ export default async (req, res) => {
     const otpRef = db.collection('otp_verifications').doc(email);
     await otpRef.set({
       otpHash: hashedOtp,
-      expires: expires,
+     expires: Timestamp.fromDate(new Date(Date.now() + 10 * 60 * 1000)),
     });
 
     await resend.emails.send({
